@@ -113,7 +113,7 @@ import LocalAuthentication
     }
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "DeviceSettings") {
       let biometric = FlutterMethodChannel(name: "duanju/biometric", binaryMessenger: registrar.messenger())
-      biometric.setMethodCallHandler { _, call, result in
+      biometric.setMethodCallHandler { call, result in
         let context = LAContext()
         switch call.method {
         case "supported":
