@@ -30,7 +30,20 @@ import LocalAuthentication
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     ZgjEnsureCoreLinked()
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    let launched = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    // 隐藏系统音量 HUD：把 MPVolumeView 挂到窗口（屏幕外），这样实体音量键
+    // 不再弹系统音量提示，改由 Flutter 侧的自定义小图标接管。
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+      self?.installSystemVolumeHudSuppressor()
+    }
+    return launched
+  }
+
+  private func installSystemVolumeHudSuppressor() {
+    guard volumeView.superview == nil else { return }
+    if let window = keyWindow {
+      window.addSubview(volumeView)
+    }
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
@@ -164,7 +177,9 @@ final class MediaControls {
             let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
       if type == .began {
         self.resumeAfterInterruption = self.playing
-        if self.playing { self.send("pause") }
+        // 中断开始时无条件通知暂停：既防止 libmpv 在中断恢复后自动续播，
+        // 也覆盖「用户主动暂停后锁屏」的场景。
+        self.send("pause")
         return
       }
       let options = AVAudioSession.InterruptionOptions(
@@ -265,10 +280,22 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   private var startAttempt = 0
   private var displayToken: NSKeyValueObservation?
   private var lastPipError: String?
+  private var autoArmed = false
+  private var autoArgs: [String: Any] = [:]
+  private var autoObserver: NSObjectProtocol?
 
   init(messenger: FlutterBinaryMessenger) {
     channel = FlutterMethodChannel(name: "duanju/pip", binaryMessenger: messenger)
     super.init()
+    // 「离开应用时自动画中画」：在 App 即将失去活跃（进入后台/锁屏）的瞬间
+    // 启动系统画中画。此时场景仍处于可启动 PiP 的过渡态，成功率最高。
+    autoObserver = NotificationCenter.default.addObserver(
+      forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
+    ) { [weak self] _ in
+      guard let self, self.autoArmed,
+            !(self.pipController?.isPictureInPictureActive ?? false) else { return }
+      self.enter(self.autoArgs)
+    }
     channel.setMethodCallHandler { [weak self] call, result in
       guard let self else { result(nil); return }
       switch call.method {
@@ -283,10 +310,26 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
       case "update":
         self.update(call.arguments as? [String: Any] ?? [:])
         result(nil)
+      case "armAuto":
+        self.armAuto(call.arguments as? [String: Any] ?? [:])
+        result(nil)
+      case "disarmAuto":
+        self.disarmAuto()
+        result(nil)
       default:
         result(FlutterMethodNotImplemented)
       }
     }
+  }
+
+  private func armAuto(_ args: [String: Any]) {
+    autoArgs = args
+    autoArmed = !args.isEmpty
+  }
+
+  private func disarmAuto() {
+    autoArmed = false
+    autoArgs = [:]
   }
 
   private func prepareAudio() {
@@ -406,7 +449,9 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   }
 
   /// AVKit 要求 AVPlayerLayer 先完成至少一帧渲染才能启动 PiP；用
-  /// isReadyForDisplay 等待渲染完成后（带超时兜底）再启动。
+  /// isReadyForDisplay 等待渲染完成（带超时兜底）再启动。加密流（红果）
+  /// 解密较慢，超时放宽到 15 秒；超时不再强行启动，避免图层未上屏时
+  /// 反复触发 -1001。
   private func waitForDisplayThenStart() {
     guard let layer = playerLayer else {
       startPictureInPicture()
@@ -425,12 +470,16 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
         }
       }
     }
-    // 超时兜底：2 秒后仍未渲染也直接尝试启动。
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+    // 超时兜底：15 秒后仍未渲染则报错，不再强制启动。
+    DispatchQueue.main.asyncAfter(deadline: .now() + 15.0) { [weak self] in
       guard let self else { return }
       if self.displayToken != nil {
         self.displayToken = nil
-        self.startPictureInPicture()
+        self.channel.invokeMethod("state", arguments: [
+          "active": false,
+          "error": "视频画面未能完成渲染，无法进入画中画",
+        ])
+        self.cleanup()
       }
     }
   }
@@ -441,6 +490,12 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   private func startPictureInPicture() {
     guard let controller = pipController else { return }
     if controller.isPictureInPictureActive { return }
+    // 图层必须真正渲染出画面，AVKit 才允许启动 PiP；未就绪时继续等待，
+    // 而不是盲目 startPictureInPicture 触发 -1001。
+    if playerLayer?.isReadyForDisplay != true {
+      scheduleRetry()
+      return
+    }
     controller.startPictureInPicture()
     scheduleRetry()
   }
@@ -546,6 +601,7 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
 final class VolumeKeyWatcher: NSObject {
   private let channel: FlutterMethodChannel
   private var observation: NSKeyValueObservation?
+  private var volumeToken: NSObjectProtocol?
   private var suppress = false
   private var lastVolume: Float = 0
 
@@ -553,6 +609,23 @@ final class VolumeKeyWatcher: NSObject {
     channel = FlutterMethodChannel(name: "duanju/volume", binaryMessenger: messenger)
     super.init()
     lastVolume = AVAudioSession.sharedInstance().outputVolume
+    // 物理音量键：AVSystemController 私有通知在每次按键时都会触发，即使音量已到
+    // 最大/最小值、数值不变；这样在边界继续按音量键也能弹出音量提示图标。
+    volumeToken = NotificationCenter.default.addObserver(
+      forName: NSNotification.Name("AVSystemController_SystemVolumeDidChangeNotification"),
+      object: nil,
+      queue: .main
+    ) { [weak self] note in
+      guard let self, !self.suppress else { return }
+      let reason = note.userInfo?["AVSystemController_AudioVolumeChangeReasonNotificationParameter"] as? String
+      guard reason == "ExplicitVolumeChange" else { return }
+      let value = AVAudioSession.sharedInstance().outputVolume
+      self.lastVolume = value
+      self.channel.invokeMethod("changed", arguments: [
+        "volume": Double(value),
+        "enabled": true,
+      ])
+    }
     // KVO 兜底：程序内（如 MPVolumeView）或路由变化导致的音量变化。
     observation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.new]) { [weak self] session, _ in
       guard let self else { return }

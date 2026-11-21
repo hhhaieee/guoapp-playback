@@ -74,6 +74,32 @@ class IosPictureInPicture extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// 「离开应用时自动画中画」：把当前播放参数告知原生，App 进入后台时由
+  /// 原生在 willResignActive 时机自动启动系统画中画。
+  Future<void> armAuto({
+    required String url,
+    required Map<String, String> headers,
+    required double positionMs,
+    required double rate,
+  }) async {
+    if (!supported) return;
+    try {
+      await _channel.invokeMethod<void>('armAuto', {
+        'url': url,
+        'headers': headers,
+        'positionMs': positionMs,
+        'rate': rate,
+      });
+    } catch (_) {}
+  }
+
+  Future<void> disarmAuto() async {
+    if (!supported) return;
+    try {
+      await _channel.invokeMethod<void>('disarmAuto');
+    } catch (_) {}
+  }
+
   /// 与 Flutter 播放器同步播放态/进度。
   void update({required bool playing, required double rate, double? positionMs}) {
     if (!supported || !_active) return;

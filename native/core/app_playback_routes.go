@@ -157,3 +157,38 @@ func (engine *nativeEngine) nativeReleasePlayback(session string) {
 		stream.nativeRelease(choice.streamSession)
 	}
 }
+
+// nativePipStream 为 iOS 系统画中画准备一个独立、已解密的本地流地址。
+// 普通播放时 libmpv 依赖 decryption_key 参数自行解密，但画中画的 AVPlayer
+// 无法解密，因此需要流服务器输出解密后的 mp4（复用投屏的解密路径）。
+func (engine *nativeEngine) nativePipStream(ctx context.Context, input nativeInput) (nativePlan, error) {
+	engine.mu.Lock()
+	choice, exists := engine.playbacks[input.Session]
+	engine.mu.Unlock()
+	if !exists {
+		return nativePlan{}, errors.New("播放会话已失效，请重新播放后再试画中画")
+	}
+	if choice.index < 0 || choice.index >= len(choice.media) {
+		return nativePlan{}, errors.New("当前播放线路无效")
+	}
+	media := choice.media[choice.index]
+	if !IsProviderHTTPMediaURL(media.URL) {
+		return nativePlan{}, errors.New("站源未返回有效的播放地址")
+	}
+	stream, err := engine.streamServer()
+	if err != nil {
+		return nativePlan{}, err
+	}
+	url, token := stream.nativeOpen(choice.source, media)
+	if len(media.CENCKey) > 0 {
+		if err := stream.nativeDecrypt(ctx, token, media); err != nil {
+			stream.nativeRelease(token)
+			return nativePlan{}, err
+		}
+	}
+	return nativePlan{
+		URL:     url,
+		Headers: map[string]string{"User-Agent": UserAgent, "Referer": media.Referer},
+		Session: token,
+	}, nil
+}

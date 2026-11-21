@@ -267,7 +267,9 @@ class SettingsSection extends StatelessWidget {
             ),
             SwitchTile(
               title: '滑动调节亮度/音量',
-              subtitle: '左侧上下滑动调整亮度，右侧上下滑动调整音量',
+              subtitle: preferences.swipeEpisodes
+                  ? '左边缘调亮度，右边缘调音量，中间上下滑切集'
+                  : '左侧上下滑动调整亮度，右侧上下滑动调整音量',
               value: preferences.swipeLevels,
               onChanged: (value) =>
                   savePreferences(preferences.copyWith(swipeLevels: value)),
@@ -275,14 +277,12 @@ class SettingsSection extends StatelessWidget {
             SwitchTile(
               title: '上下滑动切换剧集',
               subtitle: preferences.swipeLevels
-                  ? '需先关闭滑动调节亮度/音量'
+                  ? '左边缘调亮度，右边缘调音量，中间上下滑切集'
                   : '横屏全屏时上滑播放下一集，下滑播放上一集',
               value: preferences.swipeEpisodes,
-              onChanged: preferences.swipeLevels
-                  ? null
-                  : (value) => savePreferences(
-                      preferences.copyWith(swipeEpisodes: value),
-                    ),
+              onChanged: (value) => savePreferences(
+                preferences.copyWith(swipeEpisodes: value),
+              ),
             ),
             SwitchTile(
               title: '竖屏自动隐藏播控',

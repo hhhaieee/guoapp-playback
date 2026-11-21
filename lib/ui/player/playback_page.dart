@@ -10,6 +10,7 @@ import '../../ios_picture_in_picture.dart';
 import '../../local_store.dart';
 import '../../picture_in_picture.dart';
 import '../../playback_session.dart';
+import '../../volume_keys_hud.dart';
 import '../app_scope.dart';
 import 'audio_player_page.dart';
 import 'landscape_player_page.dart';
@@ -36,6 +37,11 @@ class _PlaybackPageState extends State<PlaybackPage> {
   final _pip = PictureInPicture.instance;
   final _iosPip = IosPictureInPicture.instance;
   bool _suspendPipSync = false;
+  String? _autoPipSession;
+  String? _autoPipUrl;
+  Map<String, String> _autoPipHeaders = const {};
+  bool _autoPipArmed = false;
+  bool _autoPipSyncing = false;
   late bool _wideVideo = _measure();
   late bool _audio = _session.audio;
   MediaQueryData? _media;
@@ -63,6 +69,9 @@ class _PlaybackPageState extends State<PlaybackPage> {
     _iosPip.onAction = _action;
     _iosPip.addListener(_iosPipChanged);
     _bind();
+    VolumeKeysHud.instance.setEnabled(
+      widget.store.playbackPreferences.volumeKeysHud,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _sync());
   }
 
@@ -74,6 +83,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
     if (_iosPip.onAction == _action) _iosPip.onAction = null;
     if (_iosPip.onState == _iosPipState) _iosPip.onState = null;
     _iosPip.removeListener(_iosPipChanged);
+    unawaited(_iosPip.disarmAuto());
     _pip.clear();
     if (_pip.window) unawaited(_restore());
     unawaited(_playing?.cancel());
@@ -81,6 +91,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
     if (_padFullscreen.value) _applyPadFullscreen(false);
     _padFullscreen.dispose();
     unawaited(AppDevice.resetBrightness());
+    VolumeKeysHud.instance.setEnabled(false);
     widget.handle.dispose();
     super.dispose();
   }
@@ -141,6 +152,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
       // 仅同步播放态与倍速；进度交给 AVPlayer 自行推进，避免频繁 seek 造成卡顿。
       _iosPip.update(playing: playing, rate: session.speed);
     }
+    unawaited(_syncAutoPip());
   }
 
   void _iosPipChanged() {
@@ -199,14 +211,93 @@ class _PlaybackPageState extends State<PlaybackPage> {
     }
   }
 
+  /// 解析画中画播放地址。加密源（如红果 CENC）的 AVPlayer 无法用
+  /// decryption_key 自行解密，需向本地核心申请已解密的独立流地址。
+  /// [cache] 为 true 时按 mediaSession 复用已申请的解密流（供自动画中画
+  /// 高频刷新使用，避免每次都新建会话）。
+  Future<({String url, Map<String, String> headers})> _resolvePipUrl({
+    bool cache = false,
+  }) async {
+    final session = _session;
+    final url = session.mediaUrl;
+    if (url == null || url.isEmpty) {
+      return (url: '', headers: const {});
+    }
+    if (session.mediaDecryptionKey.isNotEmpty &&
+        session.mediaSession.isNotEmpty) {
+      if (cache &&
+          _autoPipSession == session.mediaSession &&
+          _autoPipUrl != null &&
+          _autoPipUrl!.isNotEmpty) {
+        return (url: _autoPipUrl!, headers: _autoPipHeaders);
+      }
+      try {
+        final plan = await session.repository.pipStream(session.mediaSession);
+        if (plan.url.isNotEmpty) {
+          if (cache) {
+            _autoPipSession = session.mediaSession;
+            _autoPipUrl = plan.url;
+            _autoPipHeaders = plan.headers;
+          }
+          return (url: plan.url, headers: plan.headers);
+        }
+      } catch (_) {
+        // 降级：继续用原地址尝试（可能无法解密）。
+      }
+    }
+    return (url: url, headers: session.mediaHeaders);
+  }
+
+  /// 「离开应用时自动画中画」：播放中把当前参数告知原生，App 进入后台时
+  /// 由原生在 willResignActive 时机自动启动系统画中画。
+  Future<void> _syncAutoPip() async {
+    if (_autoPipSyncing) return;
+    _autoPipSyncing = true;
+    try {
+      if (!mounted) return;
+      final session = _session;
+      final shouldArm =
+          widget.store.playbackPreferences.autoPictureInPicture &&
+          session.player.state.playing &&
+          !_television &&
+          !_audio &&
+          _iosPip.supported &&
+          !_iosPip.active;
+      if (!shouldArm) {
+        if (_autoPipArmed) {
+          _autoPipArmed = false;
+          await _iosPip.disarmAuto();
+        }
+        return;
+      }
+      final resolved = await _resolvePipUrl(cache: true);
+      if (!mounted || resolved.url.isEmpty) {
+        if (_autoPipArmed) {
+          _autoPipArmed = false;
+          await _iosPip.disarmAuto();
+        }
+        return;
+      }
+      _autoPipArmed = true;
+      await _iosPip.armAuto(
+        url: resolved.url,
+        headers: resolved.headers,
+        positionMs: session.currentPosition * 1000,
+        rate: session.speed,
+      );
+    } finally {
+      _autoPipSyncing = false;
+    }
+  }
+
   Future<void> _enterMini() async {
     if (defaultTargetPlatform == TargetPlatform.iOS && _iosPip.supported) {
       final session = _session;
-      final url = session.mediaUrl;
-      if (url != null && url.isNotEmpty) {
+      final resolved = await _resolvePipUrl();
+      if (resolved.url.isNotEmpty) {
         final ok = await _iosPip.enter(
-          url: url,
-          headers: session.mediaHeaders,
+          url: resolved.url,
+          headers: resolved.headers,
           positionMs: session.currentPosition * 1000,
           rate: session.speed,
           aspectRatio: session.aspectRatio,
@@ -305,6 +396,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
                   onClose: () => unawaited(_close()),
                 )
               : PictureInPictureView(handle: widget.handle),
+        VolumeHudOverlay(hud: VolumeKeysHud.instance),
       ],
     );
   }

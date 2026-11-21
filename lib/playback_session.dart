@@ -334,6 +334,8 @@ class PlaybackSession extends ChangeNotifier {
   /// 当前播放地址与请求头，供 iOS 系统画中画的独立 AVPlayer 使用。
   String? get mediaUrl => _plan?.url.isNotEmpty == true ? _plan!.url : null;
   Map<String, String> get mediaHeaders => _plan?.headers ?? const {};
+  String get mediaDecryptionKey => _plan?.decryptionKey ?? '';
+  String get mediaSession => _plan?.session ?? '';
 
   bool get _usable => !_closed && store.profileEpoch == _epoch;
   bool _current(int ticket) => _usable && ticket == _generation;
@@ -1548,6 +1550,11 @@ class PlaybackSession extends ChangeNotifier {
     } else {
       _holdNetworkSpeed();
       if (_pendingError) _queueRecovery('foreground_pending_error');
+      // 锁屏/进入后台导致的音频中断结束后，libmpv 可能自行恢复播放；
+      // 回到前台时若仍是「暂停」意图，强制纠正，避免暂停后锁屏误播。
+      if (!_playIntent && player.state.playing) {
+        unawaited(player.pause());
+      }
     }
   }
 

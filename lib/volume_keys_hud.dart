@@ -85,8 +85,8 @@ class VolumeKeysHud extends ChangeNotifier {
   }
 }
 
-/// 音量提示浮层：居中显示扬声器图标与音量条。音量 0 显示静音图标，
-/// 音量最大/最小同样显示。
+/// 音量提示浮层：深色圆角胶囊 + 扬声器图标 + 横向音量条（仿系统小图标）。
+/// 音量 0 显示静音图标；音量最大/最小同样显示。
 class VolumeHudOverlay extends StatelessWidget {
   const VolumeHudOverlay({super.key, required this.hud});
 
@@ -99,17 +99,16 @@ class VolumeHudOverlay extends StatelessWidget {
       if (!hud.visible) return const SizedBox.shrink();
       final level = hud.volume;
       final muted = level <= 0.001;
-      final percent = (level * 100).round();
-      final colors = Theme.of(context).colorScheme;
       return IgnorePointer(
-        child: Center(
+        child: Align(
+          alignment: const Alignment(0, -0.4),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
             decoration: BoxDecoration(
               color: Colors.black.withValues(alpha: .72),
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(22),
             ),
-            child: Column(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
@@ -119,25 +118,20 @@ class VolumeHudOverlay extends StatelessWidget {
                       ? Icons.volume_up_rounded
                       : Icons.volume_down_rounded,
                   color: Colors.white,
-                  size: 34,
+                  size: 22,
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(width: 10),
                 SizedBox(
-                  width: 160,
+                  width: 120,
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(3),
+                    borderRadius: BorderRadius.circular(2),
                     child: LinearProgressIndicator(
                       value: level,
-                      minHeight: 5,
+                      minHeight: 4,
                       backgroundColor: Colors.white.withValues(alpha: .25),
-                      valueColor: AlwaysStoppedAnimation(colors.primary),
+                      valueColor: const AlwaysStoppedAnimation(Colors.white),
                     ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  muted ? '静音' : '$percent%',
-                  style: const TextStyle(color: Colors.white, fontSize: 13),
                 ),
               ],
             ),

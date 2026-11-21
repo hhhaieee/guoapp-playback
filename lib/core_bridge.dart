@@ -216,6 +216,9 @@ abstract class AppRepository {
   Future<PlaybackPlan> fallback(PlaybackPlan current);
   Future<void> cancelPlayback();
   Future<void> release(String session);
+  /// 为 iOS 系统画中画准备一个已解密的独立流地址（加密源如红果需要）。
+  Future<PlaybackPlan> pipStream(String session) async =>
+      throw AppFailure('当前环境不支持画中画流');
 }
 
 class NativeRepository extends AppRepository {
@@ -1221,4 +1224,9 @@ class NativeRepository extends AppRepository {
       await _call({'action': 'release', 'session': session});
     } catch (_) {}
   }
+
+  @override
+  Future<PlaybackPlan> pipStream(String session) async => PlaybackPlan.fromJson(
+    await _call({'action': 'pipStream', 'session': session}),
+  );
 }

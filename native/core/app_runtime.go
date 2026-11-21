@@ -483,6 +483,8 @@ func nativeDispatch(input nativeInput) (any, error) {
 	case "release":
 		engine.nativeReleasePlayback(input.Session)
 		return true, nil
+	case "pipStream":
+		return engine.nativePipStream(ctx, input)
 	case "cast":
 		return engine.nativeCast(ctx, input)
 	case "checkUpdate":
