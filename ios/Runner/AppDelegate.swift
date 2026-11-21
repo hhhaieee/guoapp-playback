@@ -3,6 +3,7 @@ import UIKit
 import DuanjuCore
 import CFNetwork
 import AVFoundation
+import AVKit
 import CoreMedia
 import MediaPlayer
 
