@@ -5,12 +5,12 @@ import 'package:flutter/services.dart';
 class BiometricAuth {
   BiometricAuth._();
 
-  static const _channel = MethodChannel('duanju/biometric');
+  static const _channel = MethodChannel('duanju/device');
 
   /// 是否支持生物识别或设备密码。两者都没有（模拟器 / 无密码）时返回 false。
   static Future<bool> supported() async {
     try {
-      return await _channel.invokeMethod<bool>('supported') ?? false;
+      return await _channel.invokeMethod<bool>('biometricSupported') ?? false;
     } catch (_) {
       return false;
     }
@@ -20,7 +20,7 @@ class BiometricAuth {
   /// 设备不支持生物识别且无密码时，原生端直接放行返回 true。
   static Future<bool> authenticate(String reason) async {
     try {
-      return await _channel.invokeMethod<bool>('authenticate', {
+      return await _channel.invokeMethod<bool>('biometricAuthenticate', {
         'reason': reason,
       }) ?? false;
     } catch (_) {
