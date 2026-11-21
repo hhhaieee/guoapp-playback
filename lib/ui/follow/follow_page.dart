@@ -33,6 +33,7 @@ class FollowPage extends StatefulWidget {
     required this.entryFocus,
     required this.onExitUp,
     this.adultOnly,
+    this.onOpenSearch,
   });
   final LocalStore store;
   final FocusNode entryFocus;
@@ -40,6 +41,9 @@ class FollowPage extends StatefulWidget {
 
   /// 是否仅显示 18+ 片源：null 不过滤，true 仅 18+，false 仅非 18+。
   final bool? adultOnly;
+
+  /// 手机端右下角悬浮搜索按钮回调；为 null 时不显示。
+  final VoidCallback? onOpenSearch;
 
   @override
   State<FollowPage> createState() => _FollowPageState();
@@ -316,14 +320,17 @@ class _FollowPageState extends State<FollowPage> {
                       ],
                     ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: _search(),
-            ),
             ?_sources(view, inset: 16, scroll: true),
           ],
         ),
       ),
+      floatingActionButton: selection == null && widget.onOpenSearch != null
+          ? FloatingActionButton(
+              tooltip: '搜索',
+              onPressed: widget.onOpenSearch,
+              child: const Icon(Icons.search_rounded),
+            )
+          : null,
       bottomNavigationBar: selection == null
           ? null
           : Padding(

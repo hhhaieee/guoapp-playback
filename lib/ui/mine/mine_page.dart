@@ -74,8 +74,6 @@ class MinePage extends StatelessWidget {
   void _openGroup(BuildContext context, SettingsGroup group) =>
       openSettingsGroup(context, store, group);
 
-  Widget _userCard(BuildContext context) => _UserCard(store: store);
-
   Widget _entries(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     spacing: 12,
@@ -86,7 +84,6 @@ class MinePage extends StatelessWidget {
             SettingsTile(
               icon: Icons.nightlight_round,
               title: '夜剧',
-              subtitle: '18+ 片源的历史与追剧',
               onTap: () => _openNight(context),
             ),
           ],
@@ -150,11 +147,6 @@ class MinePage extends StatelessWidget {
       const PageHeader(title: '我的'),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: _userCard(context),
-      ),
-      const SizedBox(height: 16),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
         child: _entries(context),
       ),
     ],
@@ -172,7 +164,6 @@ class MinePage extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             spacing: 16,
             children: [
-              _userCard(context),
               _entries(context),
             ],
           ),
@@ -192,10 +183,9 @@ class MinePage extends StatelessWidget {
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          mainAxisAlignment: MainAxisAlignment.center,
           spacing: 22,
           children: [
-            _userCard(context),
             Row(
               spacing: 20,
               children: [
@@ -249,67 +239,6 @@ class MinePage extends StatelessWidget {
         return KeyEventResult.handled;
       },
       child: page,
-    );
-  }
-}
-
-class _UserCard extends StatelessWidget {
-  const _UserCard({required this.store});
-  final LocalStore store;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final profile = store.profile;
-    return Material(
-      color: colors.surfaceContainer,
-      borderRadius: BorderRadius.circular(20),
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          spacing: 14,
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: colors.primaryContainer,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.person_rounded,
-                size: 26,
-                color: colors.onPrimaryContainer,
-              ),
-            ),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                spacing: 2,
-                children: [
-                  Text(
-                    profile.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  Text(
-                    '个人中心',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: colors.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

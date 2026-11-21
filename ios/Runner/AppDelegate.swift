@@ -263,6 +263,8 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   private var kvoToken: NSKeyValueObservation?
   private var pendingSeek: CMTime?
   private var startAttempt = 0
+  private var displayToken: NSKeyValueObservation?
+  private var lastPipError: String?
 
   init(messenger: FlutterBinaryMessenger) {
     channel = FlutterMethodChannel(name: "duanju/pip", binaryMessenger: messenger)
@@ -291,6 +293,16 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     let session = AVAudioSession.sharedInstance()
     try? session.setCategory(.playback, mode: .moviePlayback)
     try? session.setActive(true)
+  }
+
+  /// 优先取前台激活场景的窗口，避免多场景/后台时找不到 keyWindow 导致
+  /// AVPlayerLayer 未真正挂到窗口层级，从而触发 -1001。
+  private var foregroundWindow: UIWindow? {
+    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+    if let active = scenes.first(where: { $0.activationState == .foregroundActive }) {
+      return active.windows.first(where: { $0.isKeyWindow }) ?? active.windows.first
+    }
+    return scenes.flatMap { $0.windows }.first(where: { $0.isKeyWindow })
   }
 
   private func enter(_ args: [String: Any]) {
@@ -322,14 +334,19 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     host.backgroundColor = .clear
     host.alpha = 0.02
     host.isUserInteractionEnabled = false
-    if let window = UIApplication.shared.connectedScenes
-        .compactMap({ $0 as? UIWindowScene })
-        .flatMap({ $0.windows })
-        .first(where: { $0.isKeyWindow }) {
+    if let window = foregroundWindow {
       window.addSubview(host)
       window.bringSubviewToFront(host)
       host.layer.addSublayer(layer)
       self.pipHost = host
+    } else {
+      // 拿不到窗口时 layer 永远不会上屏，直接报错，避免无意义重试。
+      channel.invokeMethod("state", arguments: [
+        "active": false,
+        "error": "找不到前台窗口，无法挂载视频图层",
+      ])
+      cleanup()
+      return
     }
 
     self.player = newPlayer
@@ -383,18 +400,63 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
       DispatchQueue.main.async {
         guard let self else { return }
         newPlayer.rate = Float(self.lastRate)
+        self.waitForDisplayThenStart()
+      }
+    }
+  }
+
+  /// AVKit 要求 AVPlayerLayer 先完成至少一帧渲染才能启动 PiP；用
+  /// isReadyForDisplay 等待渲染完成后（带超时兜底）再启动。
+  private func waitForDisplayThenStart() {
+    guard let layer = playerLayer else {
+      startPictureInPicture()
+      return
+    }
+    if layer.isReadyForDisplay {
+      startPictureInPicture()
+      return
+    }
+    displayToken = layer.observe(\.isReadyForDisplay, options: [.new]) { [weak self] observed, _ in
+      DispatchQueue.main.async {
+        guard let self else { return }
+        self.displayToken = nil
+        if observed.isReadyForDisplay {
+          self.startPictureInPicture()
+        }
+      }
+    }
+    // 超时兜底：2 秒后仍未渲染也直接尝试启动。
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+      guard let self else { return }
+      if self.displayToken != nil {
+        self.displayToken = nil
         self.startPictureInPicture()
       }
     }
   }
 
-  /// 阶梯重试启动 PiP：startPictureInPicture 是异步的，且 AVKit 要求 layer
-  /// 先完成一次渲染；在短间隔内反复尝试直到窗口真正弹出，规避 -1001「操作无法完成」。
+  /// 阶梯重试启动 PiP：startPictureInPicture 是异步的，失败会通过 delegate 回调；
+  /// 保留 player/layer，在短间隔内反复尝试直到窗口真正弹出，规避 -1001。
   private func startPictureInPicture() {
-    guard let controller = pipController, !controller.isPictureInPictureActive else { return }
-    controller.startPictureInPicture()
-    let delays: [Double] = [0.35, 0.6, 0.9, 1.2]
-    guard startAttempt < delays.count else { return }
+    guard let controller = pipController else { return }
+    if controller.isPictureInPictureActive { return }
+    if controller.isPictureInPicturePossible {
+      controller.startPictureInPicture()
+    }
+    scheduleRetry()
+  }
+
+  private func scheduleRetry() {
+    let delays: [Double] = [0.4, 0.7, 1.0, 1.3, 1.6]
+    guard startAttempt < delays.count else {
+      let reason = lastPipError ?? "系统未能启动画中画"
+      channel.invokeMethod("state", arguments: [
+        "active": false,
+        "error": reason,
+      ])
+      cleanup()
+      return
+    }
     let delay = delays[startAttempt]
     startAttempt += 1
     DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
@@ -431,8 +493,10 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     if let timeObserver { player?.removeTimeObserver(timeObserver) }
     timeObserver = nil
     kvoToken = nil
+    displayToken = nil
     pendingSeek = nil
     startAttempt = 0
+    lastPipError = nil
     player?.pause()
     pipController?.delegate = nil
     pipController = nil
@@ -455,8 +519,12 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   }
 
   func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error) {
-    channel.invokeMethod("state", arguments: ["active": false, "error": error.localizedDescription])
-    cleanup()
+    // 不立即 cleanup：保留 player/layer，交给阶梯重试继续尝试；最终失败由
+    // scheduleRetry 重试耗尽时统一回传错误并清理。这里记下底层失败原因，
+    // 便于把 AVKit 的真实诊断（如场景未激活/图层未上屏）回传给用户定位。
+    let ns = error as NSError
+    let reason = ns.localizedFailureReason ?? ns.localizedDescription
+    lastPipError = "\(reason)（\(ns.domain) \(ns.code)）"
   }
 }
 
@@ -464,6 +532,7 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
 final class VolumeKeyWatcher: NSObject {
   private let channel: FlutterMethodChannel
   private var observation: NSKeyValueObservation?
+  private var volumeToken: NSObjectProtocol?
   private var suppress = false
   private var lastVolume: Float = 0
 
@@ -471,6 +540,24 @@ final class VolumeKeyWatcher: NSObject {
     channel = FlutterMethodChannel(name: "duanju/volume", binaryMessenger: messenger)
     super.init()
     lastVolume = AVAudioSession.sharedInstance().outputVolume
+    // 物理音量键：AVSystemController 私有通知在每次按键时都会触发，即使音量已到
+    // 最大/最小值、数值不变；这样在边界继续按音量键也能弹出音量提示图标。
+    volumeToken = NotificationCenter.default.addObserver(
+      forName: NSNotification.Name("AVSystemController_SystemVolumeDidChangeNotification"),
+      object: nil,
+      queue: .main
+    ) { [weak self] note in
+      guard let self, !self.suppress else { return }
+      let reason = note.userInfo?["AVSystemController_AudioVolumeChangeReasonNotificationParameter"] as? String
+      guard reason == "ExplicitVolumeChange" else { return }
+      let value = AVAudioSession.sharedInstance().outputVolume
+      self.lastVolume = value
+      self.channel.invokeMethod("changed", arguments: [
+        "volume": Double(value),
+        "enabled": true,
+      ])
+    }
+    // KVO 兜底：程序内（如 MPVolumeView）或路由变化导致的音量变化。
     observation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.new]) { [weak self] session, _ in
       guard let self else { return }
       let value = session.outputVolume

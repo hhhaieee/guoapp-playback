@@ -148,7 +148,7 @@ class SourceBar extends StatelessWidget {
                   Expanded(
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
-                      itemCount: sources.length,
+                      itemCount: sources.take(5).length,
                       separatorBuilder: (_, _) => const SizedBox(width: 8),
                       itemBuilder: (context, index) {
                         final site = sources[index];
@@ -168,6 +168,24 @@ class SourceBar extends StatelessWidget {
                       },
                     ),
                   ),
+                  if (sources.length > 5)
+                    Builder(
+                      builder: (anchor) => Padding(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: SizedBox(
+                          width: 34,
+                          height: 34,
+                          child: IconButton.filledTonal(
+                            onPressed: onMoreSources != null
+                                ? () => onMoreSources!()
+                                : () => onSwitchSource(anchor),
+                            icon: const Icon(Icons.more_horiz_rounded, size: 20),
+                            tooltip: '更多站源',
+                            padding: EdgeInsets.zero,
+                          ),
+                        ),
+                      ),
+                    ),
                   ...actions,
                 ],
               ),

@@ -12,6 +12,7 @@ class FindPage extends StatefulWidget {
     required this.entryFocus,
     required this.onExitUp,
     this.adultOnly,
+    this.onOpenSearch,
   });
   final LocalStore store;
   final FocusNode entryFocus;
@@ -19,6 +20,9 @@ class FindPage extends StatefulWidget {
 
   /// 是否仅显示 18+ 片源：null 不过滤，true 仅 18+，false 仅非 18+。
   final bool? adultOnly;
+
+  /// 手机端追剧页右下角悬浮搜索按钮回调。
+  final VoidCallback? onOpenSearch;
 
   @override
   State<FindPage> createState() => _FindPageState();
@@ -31,12 +35,25 @@ class _FindPageState extends State<FindPage> {
 
   @override
   Widget build(BuildContext context) {
+    final body = _buildBody();
+    // 从「我的」页以「夜剧」入口进入时带返回按钮；作为底部标签页时不带。
+    if (widget.adultOnly == true) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('夜剧')),
+        body: body,
+      );
+    }
+    return body;
+  }
+
+  Widget _buildBody() {
     if (!_showHistory) {
       return FollowPage(
         store: widget.store,
         entryFocus: widget.entryFocus,
         onExitUp: widget.onExitUp,
         adultOnly: widget.adultOnly,
+        onOpenSearch: widget.onOpenSearch,
       );
     }
     return Column(
@@ -71,6 +88,7 @@ class _FindPageState extends State<FindPage> {
                   entryFocus: widget.entryFocus,
                   onExitUp: widget.onExitUp,
                   adultOnly: widget.adultOnly,
+                  onOpenSearch: widget.onOpenSearch,
                 ),
               ],
             ),

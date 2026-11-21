@@ -7,6 +7,7 @@ import '../../drama_feed.dart';
 import '../../explore_feed.dart';
 import '../../local_store.dart';
 import '../../models.dart';
+import '../../ranking_models.dart';
 import '../../source_catalog.dart';
 import '../app_scope.dart';
 import '../player/playback_launcher.dart';
@@ -39,6 +40,8 @@ class SearchTabState extends State<SearchTab> {
   String _submitted = '';
   bool _ready = false;
   late AppRepository _repository;
+  List<RankingItem> _hot = const [];
+  int _hotGeneration = 0;
 
   @override
   void didChangeDependencies() {
@@ -47,6 +50,32 @@ class SearchTabState extends State<SearchTab> {
     _ready = true;
     _repository = AppScope.of(context).repository;
     _explore ??= widget.feed ?? ExploreFeed(_repository, widget.store);
+    unawaited(_loadHot());
+  }
+
+  Future<void> _loadHot() async {
+    final generation = ++_hotGeneration;
+    try {
+      final boards = await _repository.rankingBoards();
+      final sourceBoards = [
+        for (final board in boards)
+          if (board.source == widget.store.source) board,
+      ];
+      final hotBoard =
+          sourceBoards
+              .where(
+                (board) =>
+                    board.name.contains('热') ||
+                    board.name.contains('搜') ||
+                    board.id.contains('hot'),
+              )
+              .firstOrNull ??
+          sourceBoards.firstOrNull;
+      if (hotBoard == null) return;
+      final page = await _repository.rankings(hotBoard);
+      if (!mounted || generation != _hotGeneration) return;
+      setState(() => _hot = page.items.take(8).toList());
+    } catch (_) {}
   }
 
   @override
@@ -166,7 +195,10 @@ class SearchTabState extends State<SearchTab> {
             onSelected: (_) {
               if (site.id != widget.store.source) {
                 unawaited(
-                  widget.store.setSource(site.id).catchError((Object _) {}),
+                  widget.store
+                      .setSource(site.id)
+                      .then((_) => _loadHot())
+                      .catchError((Object _) {}),
                 );
               }
             },
@@ -243,18 +275,45 @@ class SearchTabState extends State<SearchTab> {
               ),
             ),
             SliverPadding(
-              padding: EdgeInsets.fromLTRB(
-                inset,
-                8,
-                inset,
-                television ? 27 : 16,
-              ),
+              padding: EdgeInsets.fromLTRB(inset, 8, inset, 0),
               sliver: SliverToBoxAdapter(child: FeedFooter(feed: feed)),
+            ),
+            ..._discoverySlivers(context, inset),
+            SliverPadding(
+              padding: EdgeInsets.only(bottom: television ? 27 : 16),
             ),
           ],
         ),
       ),
     );
+  }
+
+  List<Widget> _discoverySlivers(BuildContext context, double inset) {
+    final recent = widget.store.recentSearches;
+    final hot = _hot;
+    if (recent.isEmpty && hot.isEmpty) return const [];
+    return [
+      if (recent.isNotEmpty)
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(inset, 8, inset, 0),
+          sliver: SliverToBoxAdapter(
+            child: _RecentSearchesSection(
+              recent: recent,
+              onSearch: _submit,
+              onClear: () => widget.store
+                  .clearRecentSearches()
+                  .catchError((Object _) {}),
+            ),
+          ),
+        ),
+      if (hot.isNotEmpty)
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(inset, 8, inset, 0),
+          sliver: SliverToBoxAdapter(
+            child: _HotSearchesSection(items: hot, onSearch: _submit),
+          ),
+        ),
+    ];
   }
 
   Widget _rankingBody(
@@ -304,13 +363,12 @@ class SearchTabState extends State<SearchTab> {
                   ),
                 ),
               SliverPadding(
-                padding: EdgeInsets.fromLTRB(
-                  inset,
-                  8,
-                  inset,
-                  television ? 27 : 16,
-                ),
+                padding: EdgeInsets.fromLTRB(inset, 8, inset, 0),
                 sliver: SliverToBoxAdapter(child: FeedFooter(feed: feed)),
+              ),
+              ..._discoverySlivers(context, inset),
+              SliverPadding(
+                padding: EdgeInsets.only(bottom: television ? 27 : 16),
               ),
             ],
           ),
@@ -591,6 +649,129 @@ class _RankListItem extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _RecentSearchesSection extends StatelessWidget {
+  const _RecentSearchesSection({
+    required this.recent,
+    required this.onSearch,
+    required this.onClear,
+  });
+  final List<String> recent;
+  final ValueChanged<String> onSearch;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                '最近搜索',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              ),
+            ),
+            IconButton(
+              tooltip: '清空',
+              onPressed: onClear,
+              icon: const Icon(Icons.delete_outline_rounded, size: 20),
+            ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final query in recent)
+              ActionChip(
+                avatar: const Icon(Icons.history_rounded, size: 16),
+                label: Text(query),
+                onPressed: () => onSearch(query),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _HotSearchesSection extends StatelessWidget {
+  const _HotSearchesSection({required this.items, required this.onSearch});
+  final List<RankingItem> items;
+  final ValueChanged<String> onSearch;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          '大家都在搜',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 4),
+        for (final item in items)
+          InkWell(
+            onTap: () => onSearch(item.drama.title),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 22,
+                    child: Text(
+                      '${item.rank}',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: item.rank <= 3
+                            ? _heatColor
+                            : colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      item.drama.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  if (item.metric.isNotEmpty)
+                    Text(
+                      item.metric,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    )
+                  else if (item.drama.heat.isNotEmpty)
+                    Text(
+                      item.drama.heat,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

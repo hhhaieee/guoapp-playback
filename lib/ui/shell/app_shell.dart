@@ -198,7 +198,7 @@ class _AppShellState extends State<AppShell> {
 
   List<AppTab> get _tabs {
     if (AppScope.formFactorOf(context) == FormFactor.phone) {
-      return const [AppTab.explore, AppTab.search, AppTab.find, AppTab.mine];
+      return const [AppTab.explore, AppTab.find, AppTab.mine, AppTab.search];
     }
     final television = AppScope.of(context).television;
     return [
@@ -340,11 +340,13 @@ class _AppShellState extends State<AppShell> {
       entryFocus: _followEntry,
       onExitUp: _tabFocus[AppTab.find.index].requestFocus,
       adultOnly: false,
+      onOpenSearch: () => _openSearch(),
     ),
     AppTab.follow => FollowPage(
       store: widget.store,
       entryFocus: _followEntry,
       onExitUp: _tabFocus[AppTab.follow.index].requestFocus,
+      onOpenSearch: () => _openSearch(),
     ),
     AppTab.history => HistoryPage(store: widget.store, root: true),
     AppTab.mine => MinePage(
