@@ -36,7 +36,6 @@ class _PlaybackPageState extends State<PlaybackPage> {
   final _pageScope = FocusScopeNode(debugLabel: 'playbackPage');
   final _pip = PictureInPicture.instance;
   final _iosPip = IosPictureInPicture.instance;
-  bool _suspendPipSync = false;
   String? _autoPipSession;
   String? _autoPipUrl;
   Map<String, String> _autoPipHeaders = const {};
@@ -148,10 +147,8 @@ class _PlaybackPageState extends State<PlaybackPage> {
           widget.store.playbackPreferences.autoPictureInPicture,
     );
     _pip.resize(session.aspectRatio);
-    if (_iosPip.active && !_suspendPipSync) {
-      // 仅同步播放态与倍速；进度交给 AVPlayer 自行推进，避免频繁 seek 造成卡顿。
-      _iosPip.update(playing: playing, rate: session.speed);
-    }
+    // 系统 PiP 期间，本地播放器已暂停（画面交给独立 AVPlayer 播放），
+    // 不把本地暂停状态回写，否则会把 PiP 一起暂停。
     unawaited(_syncAutoPip());
   }
 
@@ -162,24 +159,21 @@ class _PlaybackPageState extends State<PlaybackPage> {
   void _iosPipState(bool active, {String? error, double? positionMs}) {
     if (!mounted) return;
     final foreground = playerVisible(WidgetsBinding.instance.lifecycleState);
-    _session.setForeground(!active && foreground);
     if (active) {
-      // 系统 PiP 真正启动后，暂停本地播放器避免双音；暂停期间不回写 PiP。
-      _suspendPipSync = true;
-      if (_session.player.state.playing) _session.togglePlayback();
-      _suspendPipSync = false;
-    } else if (foreground && !_session.player.state.playing) {
-      // PiP 结束回到前台时，先把系统 PiP 的进度同步回本地播放器，再恢复播放，
-      // 否则返回全屏后播放进度仍停留在进入 PiP 之前的位置。
-      if (positionMs != null && positionMs > 0) {
+      // 系统 PiP 启动：本地播放器交给 PiP 的独立 AVPlayer，暂停原画面。
+      // 用幂等的 player.pause() 而非 togglePlayback()，避免 playOrPause 与
+      // setForeground 的暂停竞争，导致原画面与画中画同时播放。
+      _session.setForeground(false);
+      if (_session.player.state.playing) unawaited(_session.player.pause());
+    } else {
+      // PiP 结束：先把 PiP 的进度同步回本地播放器，再按前台状态恢复播放。
+      if (foreground && positionMs != null && positionMs > 0) {
         unawaited(() async {
           await _session.seekTo(Duration(milliseconds: positionMs.round()));
-          if (mounted && !_session.player.state.playing) {
-            _session.togglePlayback();
-          }
+          if (mounted) _session.setForeground(foreground);
         }());
       } else {
-        _session.togglePlayback();
+        _session.setForeground(foreground);
       }
     }
     if (!active && error != null && error.isNotEmpty) {
