@@ -198,7 +198,8 @@ class _AppShellState extends State<AppShell> {
 
   List<AppTab> get _tabs {
     if (AppScope.formFactorOf(context) == FormFactor.phone) {
-      return const [AppTab.explore, AppTab.find, AppTab.mine, AppTab.search];
+      // 手机端底部为「首页、找剧、我的」三项，「搜索」单独做成右侧圆形按钮。
+      return const [AppTab.explore, AppTab.find, AppTab.mine];
     }
     final television = AppScope.of(context).television;
     return [
@@ -399,7 +400,8 @@ class _AppShellState extends State<AppShell> {
     );
     final television = AppScope.of(context).television;
     final tabs = _tabs;
-    if (!tabs.contains(_tab)) _tab = AppTab.explore;
+    // 搜索页通过右下角圆形按钮进入，不属于底部胶囊项，但仍是有效标签页。
+    if (_tab != AppTab.search && !tabs.contains(_tab)) _tab = AppTab.explore;
     final covered = _navigator?.canPop() ?? false;
     return PopScope(
       canPop:
@@ -422,11 +424,12 @@ class _AppShellState extends State<AppShell> {
                 ? null
                 : HideOnScroll(
                     alignment: Alignment.topCenter,
-                    child: _FloatingPillBar(
+                    child: _PhoneDock(
                       tabs: tabs,
                       selected: _tab,
                       badged: _badged,
                       onTap: _tap,
+                      onSearch: () => _openSearch(),
                     ),
                   ),
           ),
@@ -795,6 +798,100 @@ class _SideItem extends StatelessWidget {
   }
 }
 
+/// 手机端底部停靠区：左侧胶囊导航栏（首页/找剧/我的）+ 右侧独立圆形搜索按钮。
+class _PhoneDock extends StatelessWidget {
+  const _PhoneDock({
+    required this.tabs,
+    required this.selected,
+    required this.badged,
+    required this.onTap,
+    required this.onSearch,
+  });
+  final List<AppTab> tabs;
+  final AppTab selected;
+  final Widget Function(AppTab tab, Widget icon) badged;
+  final ValueChanged<AppTab> onTap;
+  final VoidCallback onSearch;
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 8, 16, bottomInset + 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: _FloatingPillBar(
+              tabs: tabs,
+              selected: selected,
+              badged: badged,
+              onTap: onTap,
+            ),
+          ),
+          const SizedBox(width: 12),
+          _SearchCircleButton(onTap: onSearch),
+        ],
+      ),
+    );
+  }
+}
+
+class _SearchCircleButton extends StatelessWidget {
+  const _SearchCircleButton({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final dark = theme.brightness == Brightness.dark;
+    return Container(
+      width: 62,
+      height: 62,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: dark ? 0.4 : 0.16),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: ClipOval(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+          child: Material(
+            color: dark
+                ? colors.surfaceContainerHighest.withValues(alpha: 0.62)
+                : colors.surface.withValues(alpha: 0.78),
+            shape: CircleBorder(
+              side: BorderSide(
+                color: dark
+                    ? Colors.white.withValues(alpha: 0.12)
+                    : Colors.white.withValues(alpha: 0.55),
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onTap,
+              child: SizedBox(
+                width: 62,
+                height: 62,
+                child: Icon(
+                  Icons.search_rounded,
+                  size: 26,
+                  color: colors.primary,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _FloatingPillBar extends StatelessWidget {
   const _FloatingPillBar({
     required this.tabs,
@@ -812,46 +909,42 @@ class _FloatingPillBar extends StatelessWidget {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final dark = theme.brightness == Brightness.dark;
-    final bottomInset = MediaQuery.paddingOf(context).bottom;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(16, 8, 16, bottomInset + 8),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(28),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-          child: Container(
-            height: 62,
-            decoration: BoxDecoration(
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(28),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+        child: Container(
+          height: 62,
+          decoration: BoxDecoration(
+            color: dark
+                ? colors.surfaceContainerHighest.withValues(alpha: 0.62)
+                : colors.surface.withValues(alpha: 0.78),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(
               color: dark
-                  ? colors.surfaceContainerHighest.withValues(alpha: 0.62)
-                  : colors.surface.withValues(alpha: 0.78),
-              borderRadius: BorderRadius.circular(28),
-              border: Border.all(
-                color: dark
-                    ? Colors.white.withValues(alpha: 0.12)
-                    : Colors.white.withValues(alpha: 0.55),
+                  ? Colors.white.withValues(alpha: 0.12)
+                  : Colors.white.withValues(alpha: 0.55),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: dark ? 0.4 : 0.16),
+                blurRadius: 24,
+                offset: const Offset(0, 10),
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: dark ? 0.4 : 0.16),
-                  blurRadius: 24,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                for (final tab in tabs)
-                  Expanded(
-                    child: _FloatingPillItem(
-                      tab: tab,
-                      selected: tab == selected,
-                      badged: badged,
-                      onTap: () => onTap(tab),
-                    ),
+            ],
+          ),
+          child: Row(
+            children: [
+              for (final tab in tabs)
+                Expanded(
+                  child: _FloatingPillItem(
+                    tab: tab,
+                    selected: tab == selected,
+                    badged: badged,
+                    onTap: () => onTap(tab),
                   ),
-              ],
-            ),
+                ),
+            ],
           ),
         ),
       ),

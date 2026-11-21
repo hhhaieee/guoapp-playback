@@ -435,21 +435,20 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     }
   }
 
-  /// 阶梯重试启动 PiP：startPictureInPicture 是异步的，失败会通过 delegate 回调；
-  /// 保留 player/layer，在短间隔内反复尝试直到窗口真正弹出，规避 -1001。
+  /// 阶梯重试启动 PiP：不依赖 isPictureInPicturePossible（该标志可能很晚才变
+  /// true），直接调用 startPictureInPicture，失败通过 delegate 回调记录，靠
+  /// 阶梯重试直到窗口真正弹出，规避 -1001。
   private func startPictureInPicture() {
     guard let controller = pipController else { return }
     if controller.isPictureInPictureActive { return }
-    if controller.isPictureInPicturePossible {
-      controller.startPictureInPicture()
-    }
+    controller.startPictureInPicture()
     scheduleRetry()
   }
 
   private func scheduleRetry() {
-    let delays: [Double] = [0.4, 0.7, 1.0, 1.3, 1.6]
+    let delays: [Double] = [0.35, 0.6, 0.9, 1.2, 1.5, 1.8, 2.2, 2.6]
     guard startAttempt < delays.count else {
-      let reason = lastPipError ?? "系统未能启动画中画"
+      let reason = lastPipError ?? pipDiagnostics()
       channel.invokeMethod("state", arguments: [
         "active": false,
         "error": reason,
@@ -465,6 +464,21 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
         self.startPictureInPicture()
       }
     }
+  }
+
+  /// 重试耗尽仍未启动时，把关键状态一起回传，便于定位「场景未激活 / 图层未渲染」等根因。
+  private func pipDiagnostics() -> String {
+    var parts: [String] = []
+    if let controller = pipController {
+      parts.append("possible=\(controller.isPictureInPicturePossible)")
+    }
+    if let scene = UIApplication.shared.connectedScenes
+      .compactMap({ $0 as? UIWindowScene })
+      .first {
+      parts.append("scene=\(scene.activationState.rawValue)")
+    }
+    parts.append("layerReady=\(playerLayer?.isReadyForDisplay == true)")
+    return "系统未能启动画中画（\(parts.joined(separator: ", "))）"
   }
 
   private var pipHost: UIView?
@@ -532,7 +546,6 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
 final class VolumeKeyWatcher: NSObject {
   private let channel: FlutterMethodChannel
   private var observation: NSKeyValueObservation?
-  private var volumeToken: NSObjectProtocol?
   private var suppress = false
   private var lastVolume: Float = 0
 
@@ -540,23 +553,6 @@ final class VolumeKeyWatcher: NSObject {
     channel = FlutterMethodChannel(name: "duanju/volume", binaryMessenger: messenger)
     super.init()
     lastVolume = AVAudioSession.sharedInstance().outputVolume
-    // 物理音量键：AVSystemController 私有通知在每次按键时都会触发，即使音量已到
-    // 最大/最小值、数值不变；这样在边界继续按音量键也能弹出音量提示图标。
-    volumeToken = NotificationCenter.default.addObserver(
-      forName: NSNotification.Name("AVSystemController_SystemVolumeDidChangeNotification"),
-      object: nil,
-      queue: .main
-    ) { [weak self] note in
-      guard let self, !self.suppress else { return }
-      let reason = note.userInfo?["AVSystemController_AudioVolumeChangeReasonNotificationParameter"] as? String
-      guard reason == "ExplicitVolumeChange" else { return }
-      let value = AVAudioSession.sharedInstance().outputVolume
-      self.lastVolume = value
-      self.channel.invokeMethod("changed", arguments: [
-        "volume": Double(value),
-        "enabled": true,
-      ])
-    }
     // KVO 兜底：程序内（如 MPVolumeView）或路由变化导致的音量变化。
     observation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.new]) { [weak self] session, _ in
       guard let self else { return }

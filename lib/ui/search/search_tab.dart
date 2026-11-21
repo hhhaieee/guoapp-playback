@@ -88,9 +88,17 @@ class SearchTabState extends State<SearchTab> {
   }
 
   /// 由 AppShell 调用：切到搜索页时聚焦；带关键词时直接搜索。
+  /// 不带关键词时回到默认视图（最近搜索 / 大家都在搜），避免停留在上次结果。
   void open(String query) {
     if (!mounted) return;
     if (query.trim().isEmpty) {
+      _results?.dispose();
+      _results = null;
+      if (_submitted.isNotEmpty) {
+        _submitted = '';
+        _controller.clear();
+        setState(() {});
+      }
       _focus.requestFocus();
       return;
     }
@@ -217,68 +225,59 @@ class SearchTabState extends State<SearchTab> {
   Widget _homeFeed(BuildContext context, double inset, bool television) {
     final explore = _explore!;
     final source = explore.source;
+    final discovery = _discoverySlivers(context, inset);
     if (source == null) {
-      return const StatusView(
-        title: '暂无可用站源',
-        message: '请在 我的 › 模块 中开启站源',
-        icon: Icons.public_off_rounded,
+      return CustomScrollView(
+        slivers: [
+          ...discovery,
+          const SliverFillRemaining(
+            hasScrollBody: false,
+            child: StatusView(
+              title: '暂无可用站源',
+              message: '请在 我的 › 模块 中开启站源',
+              icon: Icons.public_off_rounded,
+            ),
+          ),
+        ],
       );
     }
     final feed = explore.feed!;
     final items = feed.items;
-    if (items.isEmpty) {
-      if (feed.loading) {
-        return DramaGridSkeleton(
-          key: const ValueKey('loading'),
-          padding: EdgeInsets.fromLTRB(inset, 16, inset, 0),
-        );
-      }
-      if (feed.error.isNotEmpty) {
-        return StatusView(
-          key: const ValueKey('error'),
-          title: '暂时无法加载',
-          message: feed.error,
-          icon: Icons.cloud_off_rounded,
-          action: '重试',
-          onAction: () => feed.reload(force: true),
-        );
-      }
-      return StatusView(
-        key: const ValueKey('empty'),
-        title: '这里还没有剧',
-        message: '换一个站源看看',
-        icon: Icons.inbox_outlined,
-        action: '刷新',
-        onAction: () => feed.reload(force: true),
-      );
-    }
     // 红果推荐榜（AI 剧榜）：前 3 名放大卡片，其余两列紧凑列表。
     if (explore.recommending) {
-      return _rankingBody(context, feed, items, inset, television);
+      return _rankingBody(context, feed, items, inset, television, discovery);
     }
     return LayoutBuilder(
       builder: (context, constraints) => AutoLoadMore(
         feed: feed,
         child: CustomScrollView(
           slivers: [
-            SliverPadding(
-              padding: EdgeInsets.fromLTRB(inset, 16, inset, 0),
-              sliver: DramaSliverGrid(
-                width: constraints.maxWidth - inset * 2,
-                items: items,
-                rankOf: (drama) => explore.rankIn(explore.tab, drama),
-                heroScope: 'drama',
-                showScore: explore.tab.id != recommendTab.id,
-                exploreBlur: true,
-                onOpen: _open,
-                onMore: (drama) => quickFollow(context, widget.store, drama),
+            // 最近搜索、大家都在搜放在最上方，进入搜索页即可见。
+            ...discovery,
+            if (items.isEmpty)
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: _feedStatus(feed, inset),
+              )
+            else ...[
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(inset, 16, inset, 0),
+                sliver: DramaSliverGrid(
+                  width: constraints.maxWidth - inset * 2,
+                  items: items,
+                  rankOf: (drama) => explore.rankIn(explore.tab, drama),
+                  heroScope: 'drama',
+                  showScore: explore.tab.id != recommendTab.id,
+                  exploreBlur: true,
+                  onOpen: _open,
+                  onMore: (drama) => quickFollow(context, widget.store, drama),
+                ),
               ),
-            ),
-            SliverPadding(
-              padding: EdgeInsets.fromLTRB(inset, 8, inset, 0),
-              sliver: SliverToBoxAdapter(child: FeedFooter(feed: feed)),
-            ),
-            ..._discoverySlivers(context, inset),
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(inset, 8, inset, 0),
+                sliver: SliverToBoxAdapter(child: FeedFooter(feed: feed)),
+              ),
+            ],
             SliverPadding(
               padding: EdgeInsets.only(bottom: television ? 27 : 16),
             ),
@@ -288,31 +287,60 @@ class SearchTabState extends State<SearchTab> {
     );
   }
 
+  Widget _feedStatus(DramaFeed feed, double inset) {
+    if (feed.loading) {
+      return DramaGridSkeleton(
+        key: const ValueKey('loading'),
+        padding: EdgeInsets.fromLTRB(inset, 16, inset, 0),
+      );
+    }
+    if (feed.error.isNotEmpty) {
+      return StatusView(
+        key: const ValueKey('error'),
+        title: '暂时无法加载',
+        message: feed.error,
+        icon: Icons.cloud_off_rounded,
+        action: '重试',
+        onAction: () => feed.reload(force: true),
+      );
+    }
+    return StatusView(
+      key: const ValueKey('empty'),
+      title: '这里还没有剧',
+      message: '换一个站源看看',
+      icon: Icons.inbox_outlined,
+      action: '刷新',
+      onAction: () => feed.reload(force: true),
+    );
+  }
+
   List<Widget> _discoverySlivers(BuildContext context, double inset) {
     final recent = widget.store.recentSearches;
     final hot = _hot;
     if (recent.isEmpty && hot.isEmpty) return const [];
     return [
-      if (recent.isNotEmpty)
-        SliverPadding(
-          padding: EdgeInsets.fromLTRB(inset, 8, inset, 0),
-          sliver: SliverToBoxAdapter(
-            child: _RecentSearchesSection(
-              recent: recent,
-              onSearch: _submit,
-              onClear: () => widget.store
-                  .clearRecentSearches()
-                  .catchError((Object _) {}),
-            ),
+      SliverPadding(
+        padding: EdgeInsets.fromLTRB(inset, 12, inset, 0),
+        sliver: SliverToBoxAdapter(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (recent.isNotEmpty) ...[
+                _RecentSearchesSection(
+                  recent: recent,
+                  onSearch: _submit,
+                  onClear: () => widget.store
+                      .clearRecentSearches()
+                      .catchError((Object _) {}),
+                ),
+                if (hot.isNotEmpty) const SizedBox(height: 20),
+              ],
+              if (hot.isNotEmpty)
+                _HotSearchesSection(items: hot, onSearch: _submit),
+            ],
           ),
         ),
-      if (hot.isNotEmpty)
-        SliverPadding(
-          padding: EdgeInsets.fromLTRB(inset, 8, inset, 0),
-          sliver: SliverToBoxAdapter(
-            child: _HotSearchesSection(items: hot, onSearch: _submit),
-          ),
-        ),
+      ),
     ];
   }
 
@@ -322,6 +350,7 @@ class SearchTabState extends State<SearchTab> {
     List<Drama> items,
     double inset,
     bool television,
+    List<Widget> discovery,
   ) {
     final topThree = items.take(3).toList();
     final rest = items.skip(3).toList();
@@ -335,6 +364,7 @@ class SearchTabState extends State<SearchTab> {
           feed: feed,
           child: CustomScrollView(
             slivers: [
+              ...discovery,
               SliverPadding(
                 padding: EdgeInsets.fromLTRB(inset, 16, inset, 0),
                 sliver: SliverToBoxAdapter(
@@ -366,7 +396,6 @@ class SearchTabState extends State<SearchTab> {
                 padding: EdgeInsets.fromLTRB(inset, 8, inset, 0),
                 sliver: SliverToBoxAdapter(child: FeedFooter(feed: feed)),
               ),
-              ..._discoverySlivers(context, inset),
               SliverPadding(
                 padding: EdgeInsets.only(bottom: television ? 27 : 16),
               ),

@@ -10,7 +10,6 @@ import '../../ios_picture_in_picture.dart';
 import '../../local_store.dart';
 import '../../picture_in_picture.dart';
 import '../../playback_session.dart';
-import '../../volume_keys_hud.dart';
 import '../app_scope.dart';
 import 'audio_player_page.dart';
 import 'landscape_player_page.dart';
@@ -64,9 +63,6 @@ class _PlaybackPageState extends State<PlaybackPage> {
     _iosPip.onAction = _action;
     _iosPip.addListener(_iosPipChanged);
     _bind();
-    VolumeKeysHud.instance.setEnabled(
-      widget.store.playbackPreferences.volumeKeysHud,
-    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _sync());
   }
 
@@ -85,7 +81,6 @@ class _PlaybackPageState extends State<PlaybackPage> {
     if (_padFullscreen.value) _applyPadFullscreen(false);
     _padFullscreen.dispose();
     unawaited(AppDevice.resetBrightness());
-    VolumeKeysHud.instance.setEnabled(false);
     widget.handle.dispose();
     super.dispose();
   }
@@ -310,7 +305,6 @@ class _PlaybackPageState extends State<PlaybackPage> {
                   onClose: () => unawaited(_close()),
                 )
               : PictureInPictureView(handle: widget.handle),
-        VolumeHudOverlay(hud: VolumeKeysHud.instance),
       ],
     );
   }
