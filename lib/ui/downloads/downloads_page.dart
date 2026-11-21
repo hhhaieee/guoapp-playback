@@ -61,8 +61,6 @@ class _DownloadsPageState extends State<DownloadsPage>
   bool get _pendingTab => _tabs.index == 0;
   bool get _downloadedTab => _tabs.index == 1;
   bool get _mergeTab => _tabs.index == 2;
-  bool get _downloadSettingsTab => _tabs.index == 3;
-  bool get _storageTab => _tabs.index == 4;
 
   @override
   void initState() {
@@ -201,7 +199,10 @@ class _DownloadsPageState extends State<DownloadsPage>
         editor: _editor!,
         open: (title, body) => openPage<void>(
           context,
-          (_) => Scaffold(appBar: AppBar(title: Text(title)), body: body(_)),
+          (builderContext) => Scaffold(
+            appBar: AppBar(title: Text(title)),
+            body: body(builderContext),
+          ),
         ),
       ),
     ],
