@@ -27,6 +27,7 @@ import 'backup_actions.dart';
 import 'boss_key_tile.dart';
 import 'diary_view.dart';
 import 'settings_rows.dart';
+import 'source_diagnosis_view.dart';
 import 'storage_view.dart';
 
 enum SettingsGroup {
@@ -653,6 +654,15 @@ class SettingsSection extends StatelessWidget {
   List<Widget> _diagnostics() => [
     SettingsCard(
       children: [
+        SettingsTile(
+          title: '数据源诊断',
+          subtitle: '逐源探测可用性，定位卡在哪一步，可一键关闭异常源',
+          icon: Icons.monitor_heart_outlined,
+          onTap: () => open(
+            '数据源诊断',
+            (_) => SourceDiagnosisView(store: store, open: open),
+          ),
+        ),
         SettingsTile(
           title: '播放调试日记',
           subtitle: '查看并复制应用运行与播放器的详细事件日志',

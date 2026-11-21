@@ -160,7 +160,7 @@ class _SettingsPageState extends State<SettingsPage> {
       SettingsGroup.users => '当前：${store.profile.name}',
       SettingsGroup.about =>
         scope.version.isEmpty ? '版本未知' : '版本 ${scope.version}',
-      SettingsGroup.diagnostics => '播放调试日记、备份与恢复',
+      SettingsGroup.diagnostics => '数据源诊断、播放调试日记、备份与恢复',
     };
   }
 
