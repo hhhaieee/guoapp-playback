@@ -23,6 +23,7 @@ class SourceBar extends StatelessWidget {
     this.currentSourceId = '',
     this.onSelectSource,
     this.onMoreSources,
+    this.readOnlySearch = false,
   });
   final List<Widget> leading;
   final String source;
@@ -40,6 +41,9 @@ class SourceBar extends StatelessWidget {
   final String currentSourceId;
   final void Function(String id)? onSelectSource;
   final VoidCallback? onMoreSources;
+
+  /// 手机首页搜索框只读：点击跳转到搜索页，不再原地输入。
+  final bool readOnlySearch;
 
   @override
   Widget build(BuildContext context) {
@@ -114,14 +118,22 @@ class SourceBar extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: _RecentSearchField(
-                  width: double.infinity,
-                  hint: hint,
-                  controller: searchController,
-                  recent: recentSearches,
-                  onSubmitted: onSearchSubmitted,
-                  onForget: onForgetSearch,
-                ),
+                child: readOnlySearch
+                    ? SearchField(
+                        hint: hint,
+                        controller: searchController,
+                        readOnly: true,
+                        onTap: onOpenSearch,
+                        onSubmitted: onSearchSubmitted,
+                      )
+                    : _RecentSearchField(
+                        width: double.infinity,
+                        hint: hint,
+                        controller: searchController,
+                        recent: recentSearches,
+                        onSubmitted: onSearchSubmitted,
+                        onForget: onForgetSearch,
+                      ),
               ),
               if (leading.isNotEmpty) ...leading,
               switcher,

@@ -7,15 +7,18 @@ import 'package:flutter/services.dart';
 import '../../download_converter.dart';
 import '../../merge_queue.dart';
 import '../../download_overview.dart';
+import '../../explore_feed.dart';
 import '../../follow_updater.dart';
 import '../../local_store.dart';
 import '../../models.dart';
 import '../app_scope.dart';
 import '../explore/explore_page.dart';
 import '../explore/source_actions.dart';
+import '../find/find_page.dart';
 import '../follow/follow_page.dart';
 import '../history/history_page.dart';
 import '../mine/mine_page.dart';
+import '../search/search_tab.dart';
 import '../update_prompt.dart';
 import '../modules/module_install.dart';
 import '../widgets/bar_button.dart';
@@ -26,6 +29,8 @@ import '../widgets/source_bar.dart';
 
 enum AppTab {
   explore('首页', Icons.home_outlined, Icons.home_rounded),
+  search('搜索', Icons.search_rounded, Icons.search_rounded),
+  find('找剧', Icons.explore_outlined, Icons.explore_rounded),
   follow('追剧', Icons.bookmark_border_rounded, Icons.bookmark_rounded),
   history('历史', Icons.history_rounded, Icons.history_rounded),
   mine('我的', Icons.person_outline_rounded, Icons.person_rounded);
@@ -114,6 +119,7 @@ class _AppShellState extends State<AppShell> {
   final _header = FocusNode();
   final _televisionTabs = GlobalKey();
   final _explore = GlobalKey<ExplorePageState>();
+  final _search = GlobalKey<SearchTabState>();
   static const _revealVelocity = 400.0;
   final _barsShown = ValueNotifier(true);
   final _scrollClock = Stopwatch()..start();
@@ -126,6 +132,7 @@ class _AppShellState extends State<AppShell> {
   DownloadConverter? _converter;
   MergeQueue? _merges;
   FollowUpdater? _followUpdater;
+  ExploreFeed? _exploreFeed;
 
   NavigatorState? get _navigator => _navigators[_tab.index].currentState;
 
@@ -157,6 +164,10 @@ class _AppShellState extends State<AppShell> {
       AppScope.of(context).repository,
       widget.store,
     )..start();
+    _exploreFeed ??= ExploreFeed(
+      AppScope.of(context).repository,
+      widget.store,
+    );
   }
 
   @override
@@ -180,22 +191,33 @@ class _AppShellState extends State<AppShell> {
     _merges?.dispose();
     _downloads?.dispose();
     _followUpdater?.dispose();
+    _exploreFeed?.dispose();
     super.dispose();
   }
 
-  List<AppTab> get _tabs => [
-    for (final tab in AppTab.values)
-      if (switch (tab) {
-        AppTab.history =>
-          widget.store.historyTab && !AppScope.of(context).television,
-        AppTab.explore || AppTab.follow || AppTab.mine => true,
-      })
-        tab,
-  ];
+  List<AppTab> get _tabs {
+    if (AppScope.formFactorOf(context) == FormFactor.phone) {
+      return const [AppTab.explore, AppTab.search, AppTab.find, AppTab.mine];
+    }
+    final television = AppScope.of(context).television;
+    return [
+      AppTab.explore,
+      AppTab.follow,
+      if (widget.store.historyTab && !television) AppTab.history,
+      AppTab.mine,
+    ];
+  }
 
   void _select(AppTab tab) {
     _barsShown.value = true;
     setState(() => _tab = tab);
+  }
+
+  void _openSearch({String query = ''}) {
+    _select(AppTab.search);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _search.currentState?.open(query);
+    });
   }
 
   bool _scrolled(ScrollNotification notification) {
@@ -225,6 +247,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _tap(AppTab tab) {
+    if (tab == AppTab.search) return _openSearch();
     if (tab != _tab) return _select(tab);
     final navigator = _navigator;
     if (navigator != null && navigator.canPop()) {
@@ -297,7 +320,25 @@ class _AppShellState extends State<AppShell> {
   }
 
   Widget _root(AppTab tab) => switch (tab) {
-    AppTab.explore => ExplorePage(key: _explore, store: widget.store),
+    AppTab.explore => ExplorePage(
+      key: _explore,
+      store: widget.store,
+      feed: _exploreFeed,
+      onSearch: AppScope.formFactorOf(context) == FormFactor.phone
+          ? _openSearch
+          : null,
+    ),
+    AppTab.search => SearchTab(
+      key: _search,
+      store: widget.store,
+      feed: _exploreFeed,
+      onCancel: () => _select(AppTab.explore),
+    ),
+    AppTab.find => FindPage(
+      store: widget.store,
+      entryFocus: _followEntry,
+      onExitUp: _tabFocus[AppTab.find.index].requestFocus,
+    ),
     AppTab.follow => FollowPage(
       store: widget.store,
       entryFocus: _followEntry,
@@ -415,9 +456,10 @@ class _AppShellState extends State<AppShell> {
                           setState(() => _headerFocused = focused),
                       onKeyEvent: (_, event) {
                         final entry = switch (_tab) {
-                          AppTab.follow => _followEntry,
+                          AppTab.follow || AppTab.find => _followEntry,
                           AppTab.mine => _mineEntry,
-                          AppTab.explore || AppTab.history => null,
+                          AppTab.explore || AppTab.history || AppTab.search =>
+                            null,
                         };
                         if (event is KeyUpEvent ||
                             event.logicalKey != LogicalKeyboardKey.arrowDown ||

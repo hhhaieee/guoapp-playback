@@ -26,8 +26,19 @@ import 'explore_hero.dart';
 import 'source_actions.dart';
 
 class ExplorePage extends StatefulWidget {
-  const ExplorePage({super.key, required this.store});
+  const ExplorePage({
+    super.key,
+    required this.store,
+    this.onSearch,
+    this.feed,
+  });
   final LocalStore store;
+
+  /// 点击首页搜索框 / 提交搜索时回调（手机端切换到搜索 tab）。
+  final void Function({String query})? onSearch;
+
+  /// 可选：由 AppShell 共享的首页数据源，避免与搜索页重复加载。
+  final ExploreFeed? feed;
 
   @override
   State<ExplorePage> createState() => ExplorePageState();
@@ -50,12 +61,14 @@ class ExplorePageState extends State<ExplorePage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _explore ??= ExploreFeed(AppScope.of(context).repository, widget.store);
+    _explore ??=
+        widget.feed ??
+        ExploreFeed(AppScope.of(context).repository, widget.store);
   }
 
   @override
   void dispose() {
-    _explore?.dispose();
+    if (widget.feed == null) _explore?.dispose();
     _pager?.dispose();
     _scroll.dispose();
     _search.dispose();
@@ -213,10 +226,21 @@ class ExplorePageState extends State<ExplorePage> {
                         .catchError((Object _) {}),
                     onSwitchSource: (anchor) =>
                         pickSource(anchor, widget.store),
-                    onOpenSearch: () =>
-                        openSearch(context, widget.store, source),
-                    onSearchSubmitted: (query) =>
-                        _searchSubmitted(source, query),
+                    readOnlySearch: form == FormFactor.phone,
+                    onOpenSearch: () {
+                      if (widget.onSearch case final onSearch?) {
+                        onSearch();
+                      } else {
+                        openSearch(context, widget.store, source);
+                      }
+                    },
+                    onSearchSubmitted: (query) {
+                      if (widget.onSearch case final onSearch?) {
+                        onSearch(query: query);
+                      } else {
+                        _searchSubmitted(source, query);
+                      }
+                    },
                     sources: widget.store.sources,
                     currentSourceId: source.id,
                     onSelectSource: (id) {

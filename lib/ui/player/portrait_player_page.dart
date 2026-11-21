@@ -507,9 +507,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
                     child: PageView.builder(
                       controller: _pages,
                       scrollDirection: Axis.vertical,
-                      physics: _pinching || _session.locked
-                          ? const NeverScrollableScrollPhysics()
-                          : const _PagePhysics(),
+                      physics: const NeverScrollableScrollPhysics(),
                       itemCount: _session.detail.episodes.length,
                       itemBuilder: _page,
                     ),
@@ -605,6 +603,8 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
               key: const ValueKey('gestures'),
               session: session,
               enabled: !_pinching && !_session.locked,
+              levels: _session.store.playbackPreferences.swipeLevels,
+              episodes: true,
               child: LayoutBuilder(
                 builder: (context, constraints) => GestureDetector(
                   behavior: HitTestBehavior.opaque,
@@ -923,6 +923,17 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
             ],
           ),
         ),
+        if (widget.onMiniWindow case final onMiniWindow?)
+          IconButton(
+            onPressed: () {
+              setState(_wake);
+              onMiniWindow();
+            },
+            icon: const Icon(Icons.picture_in_picture_alt_rounded),
+            color: Colors.white,
+            tooltip: '小窗',
+            style: IconButton.styleFrom(fixedSize: const Size.square(48)),
+          ),
         FollowIcon(
           store: widget.store,
           drama: session.detail.drama,
@@ -1108,18 +1119,6 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
       ],
     ),
   );
-}
-
-class _PagePhysics extends BouncingScrollPhysics {
-  const _PagePhysics({super.parent});
-
-  @override
-  _PagePhysics applyTo(ScrollPhysics? ancestor) =>
-      _PagePhysics(parent: buildParent(ancestor));
-
-  @override
-  SpringDescription get spring =>
-      SpringDescription.withDampingRatio(mass: .5, stiffness: 400, ratio: 1);
 }
 
 class _Shade extends StatelessWidget {

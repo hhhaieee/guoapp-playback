@@ -17,6 +17,8 @@ class SearchField extends StatelessWidget {
     this.height = 40,
     this.letterKeyboard = false,
     this.matches,
+    this.readOnly = false,
+    this.onTap,
   });
   final String hint;
   final ValueChanged<String> onSubmitted;
@@ -27,6 +29,8 @@ class SearchField extends StatelessWidget {
   final double height;
   final bool letterKeyboard;
   final TitleMatches? matches;
+  final bool readOnly;
+  final VoidCallback? onTap;
 
   InputDecoration _decoration(ColorScheme colors) {
     final radius = BorderRadius.circular(height / 2);
@@ -78,6 +82,8 @@ class SearchField extends StatelessWidget {
               autofocus: autofocus,
               onChanged: onChanged,
               onSubmitted: onSubmitted,
+              readOnly: readOnly,
+              onTap: onTap,
               textInputAction: TextInputAction.search,
               style: const TextStyle(fontSize: 14),
               decoration: decoration,
