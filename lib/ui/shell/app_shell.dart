@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -857,19 +858,32 @@ class _SearchCircleButton extends StatelessWidget {
           ),
         ],
       ),
-      child: Material(
-        color: Colors.transparent,
-        shape: const CircleBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: SizedBox(
-            width: 62,
-            height: 62,
-            child: Icon(
-              Icons.search_rounded,
-              size: 26,
-              color: colors.primary,
+      child: ClipOval(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+          child: Material(
+            color: dark
+                ? colors.surfaceContainerHighest.withValues(alpha: 0.5)
+                : colors.surface.withValues(alpha: 0.42),
+            shape: CircleBorder(
+              side: BorderSide(
+                color: dark
+                    ? Colors.white.withValues(alpha: 0.12)
+                    : Colors.white.withValues(alpha: 0.5),
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onTap,
+              child: SizedBox(
+                width: 62,
+                height: 62,
+                child: Icon(
+                  Icons.search_rounded,
+                  size: 26,
+                  color: colors.primary,
+                ),
+              ),
             ),
           ),
         ),
@@ -892,21 +906,41 @@ class _FloatingPillBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 62,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (final tab in tabs)
-            Expanded(
-              child: _FloatingPillItem(
-                tab: tab,
-                selected: tab == selected,
-                badged: badged,
-                onTap: () => onTap(tab),
-              ),
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final dark = theme.brightness == Brightness.dark;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(28),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+        child: Container(
+          height: 62,
+          decoration: BoxDecoration(
+            color: dark
+                ? colors.surfaceContainerHighest.withValues(alpha: 0.5)
+                : colors.surface.withValues(alpha: 0.42),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(
+              color: dark
+                  ? Colors.white.withValues(alpha: 0.12)
+                  : Colors.white.withValues(alpha: 0.5),
             ),
-        ],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final tab in tabs)
+                Expanded(
+                  child: _FloatingPillItem(
+                    tab: tab,
+                    selected: tab == selected,
+                    badged: badged,
+                    onTap: () => onTap(tab),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
