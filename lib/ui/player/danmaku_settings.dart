@@ -49,6 +49,7 @@ class DanmakuSettings extends StatelessWidget {
   static const _scaleLabels = ['0.8×', '1.0×', '1.25×', '1.5×'];
 
   Widget _stepChips<T>({
+    required BuildContext context,
     required String title,
     required String subtitle,
     required List<T> values,
@@ -97,7 +98,8 @@ class DanmakuSettings extends StatelessWidget {
     ],
   );
 
-  Widget _scaleTile() => _stepChips<double>(
+  Widget _scaleTile(BuildContext context) => _stepChips<double>(
+    context: context,
     title: '字体大小',
     subtitle: '字号越大，屏幕上同时显示的行数越少',
     values: danmakuScaleSteps,
@@ -109,10 +111,11 @@ class DanmakuSettings extends StatelessWidget {
   );
 
   /// 不透明度四档 + 静态预览（所见即所得，不滚动、不耗帧）。
-  Widget _opacityTile() => Column(
+  Widget _opacityTile(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       _stepChips<double>(
+        context: context,
         title: '不透明度',
         subtitle: '调低后弹幕更透，不挡画面',
         values: danmakuOpacitySteps,
@@ -122,11 +125,11 @@ class DanmakuSettings extends StatelessWidget {
           () => session?.setDanmakuOpacity(value) ?? _asyncSave(opacity: value),
         ),
       ),
-      _opacityPreview(),
+      _opacityPreview(context),
     ],
   );
 
-  Widget _opacityPreview() {
+  Widget _opacityPreview(BuildContext context) {
     final p = _preferences;
     final fontSize = (16.0 * p.danmakuScale);
     return Container(
@@ -189,7 +192,8 @@ class DanmakuSettings extends StatelessWidget {
     ),
   );
 
-  Widget _speedTile() => _stepChips<double>(
+  Widget _speedTile(BuildContext context) => _stepChips<double>(
+    context: context,
     title: '滚动速度',
     subtitle: '弹幕划过屏幕的快慢（约 11 / 8.5 / 6.5 秒）',
     values: danmakuSpeedSteps,
@@ -248,7 +252,7 @@ class DanmakuSettings extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _section(context, '外观'),
-        _scaleTile(),
+        _scaleTile(context),
         Padding(
           padding: const EdgeInsets.fromLTRB(0, 4, 0, 8),
           child: Wrap(
@@ -271,7 +275,7 @@ class DanmakuSettings extends StatelessWidget {
             ],
           ),
         ),
-        _opacityTile(),
+        _opacityTile(context),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           title: const Text('加粗'),
@@ -284,7 +288,7 @@ class DanmakuSettings extends StatelessWidget {
         _strokeTile(),
         _shadowTile(),
         _section(context, '滚动'),
-        _speedTile(),
+        _speedTile(context),
         _section(context, '合并重复'),
         Text(
           preferences.danmakuMerge == DanmakuMerge.off
