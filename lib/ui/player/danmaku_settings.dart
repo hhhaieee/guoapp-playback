@@ -42,36 +42,126 @@ class DanmakuSettings extends StatelessWidget {
 
   void _save(PlaybackPreferences next) => save?.call(next);
 
-  double get _scale => _preferences.danmakuScale;
-  double get _opacity => _preferences.danmakuOpacity;
   double get _stroke => _preferences.danmakuStroke;
   double get _shadow => _preferences.danmakuShadow;
 
-  Widget _scaleTile() => SliderTile(
-    title: '字号',
-    subtitle: '相对默认字号的比例',
-    value: _scale,
-    min: danmakuScaleMin,
-    max: danmakuScaleMax,
-    divisions: 14,
-    label: (value) => '${(value * 100).round()}%',
-    onChanged: (value) => _apply(
+  /// 字号四档：0.8× / 1.0× / 1.25× / 1.5×。
+  static const _scaleLabels = ['0.8×', '1.0×', '1.25×', '1.5×'];
+
+  Widget _stepChips<T>({
+    required String title,
+    required String subtitle,
+    required List<T> values,
+    required List<String> labels,
+    required T selected,
+    required void Function(T) onPick,
+  }) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              spacing: 2,
+              children: [
+                Text(title, style: const TextStyle(fontSize: 16)),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 6),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final (index, value) in values.indexed)
+            ChoiceChip(
+              label: Text(labels[index]),
+              selected: selected == value,
+              showCheckmark: false,
+              shape: const StadiumBorder(),
+              onSelected: (_) => onPick(value),
+            ),
+        ],
+      ),
+      const SizedBox(height: 4),
+    ],
+  );
+
+  Widget _scaleTile() => _stepChips<double>(
+    title: '字体大小',
+    subtitle: '字号越大，屏幕上同时显示的行数越少',
+    values: danmakuScaleSteps,
+    labels: _scaleLabels,
+    selected: _nearestStep(_preferences.danmakuScale, danmakuScaleSteps),
+    onPick: (value) => _apply(
       () => session?.setDanmakuScale(value) ?? _asyncSave(scale: value),
     ),
   );
 
-  Widget _opacityTile() => SliderTile(
-    title: '透明度',
-    subtitle: '调低后弹幕更透，不挡画面',
-    value: _opacity,
-    min: .1,
-    max: 1,
-    divisions: 18,
-    label: (value) => '${(value * 100).round()}%',
-    onChanged: (value) => _apply(
-      () => session?.setDanmakuOpacity(value) ?? _asyncSave(opacity: value),
-    ),
+  /// 不透明度四档 + 静态预览（所见即所得，不滚动、不耗帧）。
+  Widget _opacityTile() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _stepChips<double>(
+        title: '不透明度',
+        subtitle: '调低后弹幕更透，不挡画面',
+        values: danmakuOpacitySteps,
+        labels: danmakuOpacitySteps.map((v) => '${(v * 100).round()}%').toList(),
+        selected: _nearestStep(_preferences.danmakuOpacity, danmakuOpacitySteps),
+        onPick: (value) => _apply(
+          () => session?.setDanmakuOpacity(value) ?? _asyncSave(opacity: value),
+        ),
+      ),
+      _opacityPreview(),
+    ],
   );
+
+  Widget _opacityPreview() {
+    final p = _preferences;
+    final fontSize = (16.0 * p.danmakuScale);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .06),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        '这是一条弹幕效果预览 🚀',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: fontSize,
+          fontWeight: FontWeight.w600,
+          color: Colors.white,
+          shadows: const [Shadow(offset: Offset(0.8, 1), blurRadius: 1.5, color: Colors.black)],
+        ).copyWith(color: Color(p.danmakuColor).withValues(alpha: p.danmakuOpacity)),
+      ),
+    );
+  }
+
+  /// 把任意值吸附到最近的离散档位，用于回显历史存档里的连续值。
+  static double _nearestStep(double value, List<double> steps) {
+    var best = steps.first;
+    var bestDist = (value - best).abs();
+    for (final s in steps.skip(1)) {
+      final d = (value - s).abs();
+      if (d < bestDist) {
+        bestDist = d;
+        best = s;
+      }
+    }
+    return best;
+  }
 
   Widget _strokeTile() => SliderTile(
     title: '描边',
@@ -99,15 +189,13 @@ class DanmakuSettings extends StatelessWidget {
     ),
   );
 
-  Widget _speedTile() => SliderTile(
+  Widget _speedTile() => _stepChips<double>(
     title: '滚动速度',
-    subtitle: '弹幕划过屏幕的快慢',
-    value: _preferences.danmakuSpeed,
-    min: danmakuSpeedMin,
-    max: danmakuSpeedMax,
-    divisions: 15,
-    label: (value) => '${value.toStringAsFixed(1)}x',
-    onChanged: (value) => _apply(
+    subtitle: '弹幕划过屏幕的快慢（约 11 / 8.5 / 6.5 秒）',
+    values: danmakuSpeedSteps,
+    labels: danmakuSpeedLabels,
+    selected: _nearestStep(_preferences.danmakuSpeed, danmakuSpeedSteps),
+    onPick: (value) => _apply(
       () => session?.setDanmakuSpeed(value) ?? _asyncSave(speed: value),
     ),
   );

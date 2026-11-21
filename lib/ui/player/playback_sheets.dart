@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../playback_preferences.dart';
 import '../../playback_session.dart';
@@ -228,6 +229,14 @@ class PlaybackSettingsList extends StatelessWidget {
                 ),
             ],
           ),
+          const SizedBox(height: 4),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('自动连播'),
+            subtitle: const Text('本集播完后自动播放下一集'),
+            value: session.store.playbackPreferences.autoAdvance,
+            onChanged: (value) => _change(() => session.setAutoAdvance(value)),
+          ),
           if (session.danmakuSupported) ...[
             const SizedBox(height: 8),
             SwitchListTile(
@@ -256,6 +265,27 @@ class PlaybackSettingsList extends StatelessWidget {
               ],
             ),
           ],
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.content_copy_rounded),
+            title: const Text('复制剧名'),
+            subtitle: Text(
+              session.detail.drama.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, color: label.color),
+            ),
+            onTap: () async {
+              await Clipboard.setData(
+                ClipboardData(text: session.detail.drama.title),
+              );
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('已复制剧名'), duration: Duration(seconds: 1)),
+                );
+              }
+            },
+          ),
           if (onMiniWindow case final onMiniWindow?)
             ListTile(
               contentPadding: EdgeInsets.zero,

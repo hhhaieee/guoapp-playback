@@ -12,12 +12,12 @@ void main() {
     expect(preferences.speed, 1.5);
     expect(preferences.quality, 720);
     expect(preferences.danmakuScale, 1);
-    expect(preferences.danmakuOpacity, 1);
+    expect(preferences.danmakuOpacity, .8);
     expect(preferences.danmakuBold, isTrue);
     expect(preferences.danmakuStroke, 0);
     expect(preferences.danmakuShadow, 3);
-    expect(preferences.danmakuCoverage, DanmakuCoverage.half);
-    expect(preferences.danmakuSpeed, 1);
+    expect(preferences.danmakuCoverage, DanmakuCoverage.third);
+    expect(preferences.danmakuSpeed, .94);
     expect(preferences.danmakuMerge, DanmakuMerge.ten);
     expect(preferences.danmakuWords, isEmpty);
   });
@@ -30,7 +30,7 @@ void main() {
       danmakuBold: false,
       danmakuStroke: 2,
       danmakuShadow: 6,
-      danmakuCoverage: DanmakuCoverage.full,
+      danmakuCoverage: DanmakuCoverage.most,
       danmakuSpeed: 1.5,
       danmakuMerge: DanmakuMerge.thirty,
       danmakuWords: ['剧透', '广告'],
@@ -38,7 +38,7 @@ void main() {
     final restored = PlaybackPreferences.fromJson(preferences.toJson());
     expect(restored.toJson(), preferences.toJson());
     expect(restored.danmakuColor, 0xFFFFE066);
-    expect(restored.danmakuCoverage, DanmakuCoverage.full);
+    expect(restored.danmakuCoverage, DanmakuCoverage.most);
     expect(restored.danmakuMerge, DanmakuMerge.thirty);
     expect(restored.danmakuWords, ['剧透', '广告']);
   });
@@ -55,11 +55,11 @@ void main() {
       'danmakuColor': 0xFF123456,
     });
     expect(preferences.danmakuScale, danmakuScaleMax);
-    expect(preferences.danmakuOpacity, .1);
+    expect(preferences.danmakuOpacity, .4);
     expect(preferences.danmakuStroke, danmakuStrokeMin);
     expect(preferences.danmakuShadow, danmakuShadowMax);
     expect(preferences.danmakuSpeed, danmakuSpeedMax);
-    expect(preferences.danmakuCoverage, DanmakuCoverage.half);
+    expect(preferences.danmakuCoverage, DanmakuCoverage.third);
     expect(preferences.danmakuMerge, DanmakuMerge.ten);
     expect(preferences.danmakuColor, 0xFFFFFFFF);
   });

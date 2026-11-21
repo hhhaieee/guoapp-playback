@@ -16,15 +16,27 @@ const danmakuColors = [
 enum TelevisionDecoder { optimized, hardware, software, hardwareSwapUv }
 
 enum DanmakuCoverage {
-  quarter(.25, '顶部四分之一'),
-  half(.5, '顶部一半'),
-  full(1, '全部');
+  quarter(.25, '1/4屏'),
+  third(.34, '1/3屏'),
+  half(.5, '1/2屏'),
+  most(.75, '3/4屏');
 
   const DanmakuCoverage(this.fraction, this.label);
 
   final double fraction;
   final String label;
 }
+
+/// 弹幕字号四档（相对默认 16pt 的比例）。字号越大行数越少，由渲染层按行高自动计算。
+const danmakuScaleSteps = [0.8, 1.0, 1.25, 1.5];
+
+/// 弹幕不透明度四档。
+const danmakuOpacitySteps = [0.4, 0.6, 0.8, 1.0];
+
+/// 弹幕滚动速度三档：慢/中/快，分别约 11/8.5/6.5 秒穿过屏幕。
+/// 渲染层 lifetime = danmakuLifetimeMs(8000) / speed。
+const danmakuSpeedSteps = [0.73, 0.94, 1.23];
+const danmakuSpeedLabels = ['慢', '中', '快'];
 
 enum DanmakuMerge {
   off(0, '关闭'),
@@ -97,12 +109,12 @@ class PlaybackPreferences {
     this.danmaku = true,
     this.danmakuScale = 1,
     this.danmakuColor = 0xFFFFFFFF,
-    this.danmakuOpacity = 1,
+    this.danmakuOpacity = 0.8,
     this.danmakuBold = true,
     this.danmakuStroke = 0,
     this.danmakuShadow = 3,
-    this.danmakuCoverage = DanmakuCoverage.half,
-    this.danmakuSpeed = 1,
+    this.danmakuCoverage = DanmakuCoverage.third,
+    this.danmakuSpeed = 0.94,
     this.danmakuMerge = DanmakuMerge.ten,
     this.danmakuWords = const [],
     this.preload = true,
@@ -110,7 +122,7 @@ class PlaybackPreferences {
     this.preopen,
     this.doubleTapSeek = true,
     this.swipeLevels = true,
-    this.swipeEpisodes = false,
+    this.swipeEpisodes = true,
     this.progressLine = true,
     this.showClock = true,
     this.showNetworkSpeed = true,
@@ -282,8 +294,8 @@ class PlaybackPreferences {
       danmakuColor: danmakuColors.contains(danmakuColor)
           ? danmakuColor
           : 0xFFFFFFFF,
-      danmakuOpacity: (value['danmakuOpacity'] as num? ?? 1).toDouble().clamp(
-        0.1,
+      danmakuOpacity: (value['danmakuOpacity'] as num? ?? 0.8).toDouble().clamp(
+        0.4,
         1.0,
       ),
       danmakuBold: value['danmakuBold'] as bool? ?? true,
@@ -297,8 +309,8 @@ class PlaybackPreferences {
       ),
       danmakuCoverage:
           DanmakuCoverage.values.asNameMap()[value['danmakuCoverage']] ??
-          DanmakuCoverage.half,
-      danmakuSpeed: (value['danmakuSpeed'] as num? ?? 1).toDouble().clamp(
+          DanmakuCoverage.third,
+      danmakuSpeed: (value['danmakuSpeed'] as num? ?? 0.94).toDouble().clamp(
         danmakuSpeedMin,
         danmakuSpeedMax,
       ),
@@ -313,7 +325,7 @@ class PlaybackPreferences {
       preopen: value['preopen'] as bool?,
       doubleTapSeek: value['doubleTapSeek'] as bool? ?? true,
       swipeLevels: value['swipeLevels'] as bool? ?? true,
-      swipeEpisodes: value['swipeEpisodes'] as bool? ?? false,
+      swipeEpisodes: value['swipeEpisodes'] as bool? ?? true,
       progressLine: value['progressLine'] as bool? ?? true,
       showClock: value['showClock'] as bool? ?? true,
       showNetworkSpeed: value['showNetworkSpeed'] as bool? ?? true,

@@ -6,12 +6,12 @@ class DanmakuStyle {
   const DanmakuStyle({
     this.scale = 1,
     this.color = const Color(0xFFFFFFFF),
-    this.opacity = 1,
+    this.opacity = 0.8,
     this.bold = true,
     this.stroke = 0,
     this.shadow = 3,
-    this.coverage = DanmakuCoverage.half,
-    this.speed = 1,
+    this.coverage = DanmakuCoverage.third,
+    this.speed = 0.94,
   });
 
   factory DanmakuStyle.of(PlaybackPreferences preferences) => DanmakuStyle(

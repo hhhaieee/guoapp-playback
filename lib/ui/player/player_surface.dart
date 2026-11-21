@@ -403,6 +403,7 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
                   : null,
             ),
             _pausedMark(_session.ready && _session.paused),
+            if (widget.touch && !locked) _skipIntroMark(),
             FadePresence(
               scaleFrom: .9,
               child: _streak != 0 ? _streakBadge() : null,
@@ -519,6 +520,59 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
         ),
       ),
     ),
+  );
+
+  /// 跳过片头按钮：短剧约 15 秒、长视频（单集 > 5 分钟）约 90 秒。
+  /// 仅在片头区间内显示，点击后跳到正片起点。
+  Widget _skipIntroMark() => PlaybackProgressBuilder(
+    player: _session.player,
+    builder: (context) {
+      final state = _session.player.state;
+      final duration = state.duration;
+      if (duration <= Duration.zero) return const SizedBox.shrink();
+      final intro = duration > const Duration(minutes: 5)
+          ? const Duration(seconds: 90)
+          : const Duration(seconds: 15);
+      // 片源总时长需明显长于片头，且当前仍在片头区间内才显示。
+      if (duration <= intro + const Duration(seconds: 30)) {
+        return const SizedBox.shrink();
+      }
+      final position = state.position;
+      if (position >= intro - const Duration(seconds: 1)) {
+        return const SizedBox.shrink();
+      }
+      return Positioned(
+        right: 16,
+        bottom: 176,
+        child: FadePresence(
+          child: Material(
+            color: Colors.black.withValues(alpha: .5),
+            borderRadius: BorderRadius.circular(20),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: () {
+                unawaited(_session.seekTo(intro));
+                widget.onSay('已跳过片头');
+              },
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '跳过片头',
+                      style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                    SizedBox(width: 4),
+                    Icon(Icons.play_arrow_rounded, size: 14, color: Colors.white),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    },
   );
 
   Widget _streakBadge() {
@@ -670,8 +724,10 @@ class _PlayerSurfaceState extends State<PlayerSurface> {
               child: Row(
                 spacing: 12,
                 children: [
-                  if (_session.preferences.showNetworkSpeed)
+                  if (_session.preferences.showNetworkSpeed) ...[
+                    VideoTechText(player: _session.player, style: _statusStyle),
                     NetworkSpeedText(session: _session, style: _statusStyle),
+                  ],
                   if (_session.preferences.showClock)
                     const ClockText(style: _statusStyle),
                 ],

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:media_kit/media_kit.dart';
 
 import '../../playback_session.dart';
 
@@ -47,6 +48,62 @@ class _NetworkSpeedTextState extends State<NetworkSpeedText> {
     final speed = _speed;
     if (speed == null) return const SizedBox.shrink();
     return Text(formatNetworkSpeed(speed), style: widget.style);
+  }
+}
+
+/// 视频技术信息：分辨率 + 像素格式（近似编码信息），随 videoParams 流更新。
+class VideoTechText extends StatefulWidget {
+  const VideoTechText({super.key, required this.player, this.style});
+  final Player player;
+  final TextStyle? style;
+
+  @override
+  State<VideoTechText> createState() => _VideoTechTextState();
+}
+
+class _VideoTechTextState extends State<VideoTechText> {
+  StreamSubscription<VideoParams>? _subscription;
+  VideoParams? _params;
+
+  @override
+  void initState() {
+    super.initState();
+    _params = widget.player.state.videoParams;
+    _subscription = widget.player.stream.videoParams.listen((params) {
+      if (mounted) setState(() => _params = params);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant VideoTechText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.player != widget.player) {
+      _subscription?.cancel();
+      _params = widget.player.state.videoParams;
+      _subscription = widget.player.stream.videoParams.listen((params) {
+        if (mounted) setState(() => _params = params);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = _params;
+    if (p == null) return const SizedBox.shrink();
+    final w = (p.dw ?? p.w) ?? 0;
+    final h = (p.dh ?? p.h) ?? 0;
+    final buffer = <String>[];
+    if (w > 0 && h > 0) buffer.add('${w}×${h}');
+    final fmt = p.pixelformat;
+    if (fmt != null && fmt.isNotEmpty) buffer.add(fmt);
+    if (buffer.isEmpty) return const SizedBox.shrink();
+    return Text(buffer.join(' · '), style: widget.style);
   }
 }
 

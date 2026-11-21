@@ -40,6 +40,8 @@ class _SwipeControlsState extends State<SwipeControls> {
   double? _value;
   double _pending = 0;
   double? _episodeOffset;
+  /// 分区垂直手势模式下：true=切集，false=亮度/音量。
+  bool _verticalIsEpisode = false;
 
   PlaybackSession get _session => widget.session;
 
@@ -150,6 +152,61 @@ class _SwipeControlsState extends State<SwipeControls> {
     if (_episodeOffset != null) setState(() => _episodeOffset = null);
   }
 
+  // ---- 分区垂直手势：左边缘调亮度、右边缘调音量、中间上下滑切集 ----
+
+  void _verticalStart(DragStartDetails details) {
+    final x = details.localPosition.dx / math.max(1, context.size!.width);
+    if (x < 0.2) {
+      _verticalIsEpisode = false;
+      unawaited(_levelStartAt(_Level.brightness));
+    } else if (x > 0.8) {
+      _verticalIsEpisode = false;
+      unawaited(_levelStartAt(_Level.volume));
+    } else {
+      _verticalIsEpisode = true;
+      _episodeStart(details);
+    }
+  }
+
+  void _verticalUpdate(DragUpdateDetails details) {
+    if (_verticalIsEpisode) {
+      _episodeUpdate(details);
+    } else {
+      _levelUpdate(details);
+    }
+  }
+
+  void _verticalEnd(DragEndDetails details) {
+    if (_verticalIsEpisode) {
+      _episodeEnd(details);
+    } else {
+      _levelEnd();
+    }
+  }
+
+  void _verticalCancel() {
+    if (_verticalIsEpisode) {
+      _episodeCancel();
+    } else {
+      _levelEnd();
+    }
+  }
+
+  /// 按指定类型开始亮度/音量调节（分区模式用，不再按 x 自行判定）。
+  Future<void> _levelStartAt(_Level level) async {
+    setState(() {
+      _level = level;
+      _value = null;
+      _pending = 0;
+    });
+    final value = await (level == _Level.brightness
+        ? AppDevice.brightness()
+        : AppDevice.volume());
+    if (!mounted || _level != level || _value != null) return;
+    if (value == null) return setState(() => _level = null);
+    _apply(value + _pending);
+  }
+
   String? _episodeLabel() => switch (_episodeStep) {
     1 => _session.hasNext ? '松手播放下一集' : '已经是最后一集',
     -1 => _session.hasPrevious ? '松手播放上一集' : '已经是第一集',
@@ -163,7 +220,9 @@ class _SwipeControlsState extends State<SwipeControls> {
         (defaultTargetPlatform == TargetPlatform.android ||
             defaultTargetPlatform == TargetPlatform.iOS);
     final levels = seek && widget.levels;
-    final episodes = seek && !levels && widget.episodes;
+    final episodes = seek && widget.episodes;
+    // levels + episodes 同时开启时按 x 分区：边缘调亮度/音量，中间上下滑切集。
+    final zoned = levels && episodes;
     final episodeLabel = _episodeLabel();
     final level = _level;
     final value = _value;
@@ -175,22 +234,30 @@ class _SwipeControlsState extends State<SwipeControls> {
           onHorizontalDragUpdate: seek ? _seekUpdate : null,
           onHorizontalDragEnd: seek ? _seekEnd : null,
           onHorizontalDragCancel: seek ? _seekCancel : null,
-          onVerticalDragStart: levels
+          onVerticalDragStart: zoned
+              ? _verticalStart
+              : levels
               ? (details) => unawaited(_levelStart(details))
               : episodes
               ? _episodeStart
               : null,
-          onVerticalDragUpdate: levels
+          onVerticalDragUpdate: zoned
+              ? _verticalUpdate
+              : levels
               ? _levelUpdate
               : episodes
               ? _episodeUpdate
               : null,
-          onVerticalDragEnd: levels
+          onVerticalDragEnd: zoned
+              ? _verticalEnd
+              : levels
               ? (_) => _levelEnd()
               : episodes
               ? _episodeEnd
               : null,
-          onVerticalDragCancel: levels
+          onVerticalDragCancel: zoned
+              ? _verticalCancel
+              : levels
               ? _levelEnd
               : episodes
               ? _episodeCancel

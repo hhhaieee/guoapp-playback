@@ -339,7 +339,6 @@ class PlaybackSession extends ChangeNotifier {
     quality: _quality,
     danmaku: _danmakuEnabled,
     videoFit: _videoFit,
-    autoAdvance: true,
     preload: true,
   );
 
@@ -546,10 +545,14 @@ class PlaybackSession extends ChangeNotifier {
         ? position <= Duration.zero
         : position < duration - const Duration(seconds: 2)) {
       _queueRecovery('early_completion');
-    } else if (_foreground && hasNext && !_sleepAtEpisodeEnd) {
+    } else if (_foreground &&
+        hasNext &&
+        !_sleepAtEpisodeEnd &&
+        store.playbackPreferences.autoAdvance) {
       unawaited(play(_index + 1));
     } else if (_foreground &&
         !_sleepAtEpisodeEnd &&
+        store.playbackPreferences.autoAdvance &&
         detail.nextSeason != null) {
       unawaited(_playNextSeason());
     } else {
@@ -1467,8 +1470,14 @@ class PlaybackSession extends ChangeNotifier {
   }
 
   Future<void> setDanmakuOpacity(double value) async {
-    final opacity = value.clamp(.1, 1.0);
+    final opacity = value.clamp(.4, 1.0);
     await _savePreferences(_preferences.copyWith(danmakuOpacity: opacity));
+    _notify();
+  }
+
+  /// 自动连播开关。关闭后本集播完即停止，不自动进入下一集。
+  Future<void> setAutoAdvance(bool value) async {
+    await _savePreferences(store.playbackPreferences.copyWith(autoAdvance: value));
     _notify();
   }
 

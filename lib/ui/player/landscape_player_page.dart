@@ -494,6 +494,8 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
           video: session.videoSize,
           fit: session.videoFit,
           style: session.danmakuStyle,
+          // 从顶栏下方起算，避免弹幕遮挡顶部控件与底部进度/图标区。
+          topLimit: 56,
         ),
         SwipeControls(
           session: session,
