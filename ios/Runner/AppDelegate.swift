@@ -309,8 +309,8 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     self.playerItem = item
     self.playerLayer = layer
 
-    if #available(iOS 14.2, *) {
-      let controller = AVPictureInPictureController(playerLayer: layer)
+    if #available(iOS 14.2, *),
+       let controller = AVPictureInPictureController(playerLayer: layer) {
       controller.delegate = self
       controller.canStartPictureInPictureAutomaticallyFromInline = false
       self.pipController = controller
