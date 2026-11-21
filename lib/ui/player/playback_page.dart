@@ -221,7 +221,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
     final session = _session;
     final url = session.mediaUrl;
     if (url == null || url.isEmpty) {
-      return (url: '', headers: const {});
+      return (url: '', headers: const <String, String>{});
     }
     if (session.mediaDecryptionKey.isNotEmpty &&
         session.mediaSession.isNotEmpty) {
