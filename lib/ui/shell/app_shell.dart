@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -418,19 +419,11 @@ class _AppShellState extends State<AppShell> {
                 ? null
                 : HideOnScroll(
                     alignment: Alignment.topCenter,
-                    child: NavigationBar(
-                      height: 72,
-                      selectedIndex: tabs.indexOf(_tab),
-                      onDestinationSelected: (index) => _tap(tabs[index]),
-                      destinations: [
-                        for (final tab in tabs)
-                          NavigationDestination(
-                            key: ValueKey('nav-${tab.name}'),
-                            icon: _badged(tab, Icon(tab.icon)),
-                            selectedIcon: _badged(tab, Icon(tab.selectedIcon)),
-                            label: tab.label,
-                          ),
-                      ],
+                    child: _FloatingPillBar(
+                      tabs: tabs,
+                      selected: _tab,
+                      badged: _badged,
+                      onTap: _tap,
                     ),
                   ),
           ),
@@ -794,6 +787,134 @@ class _SideItem extends StatelessWidget {
       child: FocusRing(
         radius: metrics.itemHeight / 2,
         child: expanded ? item : Tooltip(message: tab.label, child: item),
+      ),
+    );
+  }
+}
+
+class _FloatingPillBar extends StatelessWidget {
+  const _FloatingPillBar({
+    required this.tabs,
+    required this.selected,
+    required this.badged,
+    required this.onTap,
+  });
+  final List<AppTab> tabs;
+  final AppTab selected;
+  final Widget Function(AppTab tab, Widget icon) badged;
+  final ValueChanged<AppTab> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final dark = theme.brightness == Brightness.dark;
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 8, 16, bottomInset + 8),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(28),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+          child: Container(
+            height: 62,
+            decoration: BoxDecoration(
+              color: dark
+                  ? colors.surfaceContainerHighest.withValues(alpha: 0.62)
+                  : colors.surface.withValues(alpha: 0.78),
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(
+                color: dark
+                    ? Colors.white.withValues(alpha: 0.12)
+                    : Colors.white.withValues(alpha: 0.55),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: dark ? 0.4 : 0.16),
+                  blurRadius: 24,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                for (final tab in tabs)
+                  Expanded(
+                    child: _FloatingPillItem(
+                      tab: tab,
+                      selected: tab == selected,
+                      badged: badged,
+                      onTap: () => onTap(tab),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FloatingPillItem extends StatelessWidget {
+  const _FloatingPillItem({
+    required this.tab,
+    required this.selected,
+    required this.badged,
+    required this.onTap,
+  });
+  final AppTab tab;
+  final bool selected;
+  final Widget Function(AppTab tab, Widget icon) badged;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final color = selected ? colors.primary : colors.onSurfaceVariant;
+    final icon = badged(
+      tab,
+      Icon(
+        selected ? tab.selectedIcon : tab.icon,
+        size: 24,
+        color: selected ? colors.onPrimary : color,
+      ),
+    );
+    return Semantics(
+      selected: selected,
+      button: true,
+      label: tab.label,
+      child: InkWell(
+        key: ValueKey('nav-${tab.name}'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            AnimatedContainer(
+              duration: Motion.of(context, Motion.medium),
+              curve: Motion.standard,
+              width: 46,
+              height: 30,
+              decoration: BoxDecoration(
+                color: selected ? colors.primary : Colors.transparent,
+                borderRadius: BorderRadius.circular(15),
+              ),
+              alignment: Alignment.center,
+              child: icon,
+            ),
+            const SizedBox(height: 3),
+            Text(
+              tab.label,
+              style: TextStyle(
+                fontSize: 11,
+                height: 1,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                color: color,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

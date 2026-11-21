@@ -160,6 +160,10 @@ class _PlaybackPageState extends State<PlaybackPage> {
       // PiP 结束回到前台时，恢复被暂停的本地播放器并同步进度。
       _session.togglePlayback();
     }
+    if (!active && error != null && error.isNotEmpty) {
+      ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(SnackBar(content: Text('画中画启动失败：$error')));
+    }
     setState(() {});
   }
 

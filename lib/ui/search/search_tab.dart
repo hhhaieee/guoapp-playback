@@ -10,6 +10,7 @@ import '../../models.dart';
 import '../../source_catalog.dart';
 import '../app_scope.dart';
 import '../player/playback_launcher.dart';
+import '../widgets/cover_image.dart';
 import '../widgets/drama_grid.dart';
 import '../widgets/follow_button.dart';
 import '../widgets/search_field.dart';
@@ -219,6 +220,10 @@ class SearchTabState extends State<SearchTab> {
         onAction: () => feed.reload(force: true),
       );
     }
+    // 红果推荐榜（AI 剧榜）：前 3 名放大卡片，其余两列紧凑列表。
+    if (explore.recommending) {
+      return _rankingBody(context, feed, items, inset, television);
+    }
     return LayoutBuilder(
       builder: (context, constraints) => AutoLoadMore(
         feed: feed,
@@ -249,6 +254,68 @@ class SearchTabState extends State<SearchTab> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _rankingBody(
+    BuildContext context,
+    DramaFeed feed,
+    List<Drama> items,
+    double inset,
+    bool television,
+  ) {
+    final topThree = items.take(3).toList();
+    final rest = items.skip(3).toList();
+    final rankOf = {
+      for (final (index, drama) in items.indexed) drama.id: index + 1,
+    };
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth - inset * 2;
+        return AutoLoadMore(
+          feed: feed,
+          child: CustomScrollView(
+            slivers: [
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(inset, 16, inset, 0),
+                sliver: SliverToBoxAdapter(
+                  child: _TopThreeRow(items: topThree, width: width, onOpen: _open),
+                ),
+              ),
+              if (rest.isNotEmpty)
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(inset, 16, inset, 0),
+                  sliver: SliverGrid(
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                          mainAxisExtent: 96,
+                        ),
+                    delegate: SliverChildBuilderDelegate((context, index) {
+                      final drama = rest[index];
+                      return _RankListItem(
+                        drama: drama,
+                        rank: rankOf[drama.id] ?? index + 4,
+                        onOpen: _open,
+                      );
+                    }, childCount: rest.length),
+                  ),
+                ),
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
+                  inset,
+                  8,
+                  inset,
+                  television ? 27 : 16,
+                ),
+                sliver: SliverToBoxAdapter(child: FeedFooter(feed: feed)),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -305,6 +372,224 @@ class SearchTabState extends State<SearchTab> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+const _heatColor = Color(0xFFFF5A5F);
+
+class _TopThreeRow extends StatelessWidget {
+  const _TopThreeRow({
+    required this.items,
+    required this.width,
+    required this.onOpen,
+  });
+  final List<Drama> items;
+  final double width;
+  final ValueChanged<Drama> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    const gap = 10.0;
+    final cardWidth = (width - gap * 2) / 3;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final (index, drama) in items.indexed) ...[
+          if (index > 0) const SizedBox(width: gap),
+          SizedBox(
+            width: cardWidth,
+            child: _TopThreeCard(drama: drama, rank: index + 1, onOpen: onOpen),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _TopThreeCard extends StatelessWidget {
+  const _TopThreeCard({
+    required this.drama,
+    required this.rank,
+    required this.onOpen,
+  });
+  final Drama drama;
+  final int rank;
+  final ValueChanged<Drama> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: () => onOpen(drama),
+      borderRadius: BorderRadius.circular(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AspectRatio(
+            aspectRatio: 2 / 3,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: DramaCover(drama: drama, radius: 12),
+                ),
+                IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        stops: const [.5, 1],
+                        colors: [
+                          Colors.transparent,
+                          Colors.black.withValues(alpha: .7),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(left: 0, top: 0, child: RankBadge(rank: rank)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            drama.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              height: 1.25,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            _metric(drama),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _metric(Drama drama) {
+    final parts = [
+      if (drama.episodes > 0) '${drama.episodes}集',
+      if (drama.heat.isNotEmpty) drama.heat,
+    ];
+    return parts.join(' · ');
+  }
+}
+
+class _RankListItem extends StatelessWidget {
+  const _RankListItem({
+    required this.drama,
+    required this.rank,
+    required this.onOpen,
+  });
+  final Drama drama;
+  final int rank;
+  final ValueChanged<Drama> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: () => onOpen(drama),
+      borderRadius: BorderRadius.circular(10),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 62,
+            height: 88,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: DramaCover(drama: drama, radius: 8, details: false),
+                ),
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: .62),
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(8),
+                        bottomRight: Radius.circular(6),
+                      ),
+                    ),
+                    child: Text(
+                      '$rank',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        height: 1.2,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  drama.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    height: 1.3,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text.rich(
+                  TextSpan(
+                    children: [
+                      if (drama.heat.isNotEmpty)
+                        TextSpan(
+                          text: drama.heat,
+                          style: const TextStyle(
+                            color: _heatColor,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      if (drama.heat.isNotEmpty && drama.episodes > 0)
+                        const TextSpan(text: ' · '),
+                      if (drama.episodes > 0)
+                        TextSpan(
+                          text: '${drama.episodes}集',
+                          style: TextStyle(color: colors.onSurfaceVariant),
+                        ),
+                    ],
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12, height: 1.3),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

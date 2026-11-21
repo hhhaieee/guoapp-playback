@@ -390,28 +390,36 @@ class _ModulesPageState extends State<ModulesPage>
         latest[entry.id] = entry;
       }
     }
-    Widget card(SourceModule module) => _InstalledCard(
+    Widget card(SourceModule module, {bool dragHandle = false}) => _InstalledCard(
       module: module,
       update: _updateFor(module, latest[module.id]),
       enabled: _store.sourceEnabled(module.id),
       onToggle: _toggleFor(module),
       admin: _store.profile.admin,
+      dragHandle: dragHandle,
       onDetails: AppScope.of(context).television
           ? () => _menu(module, _updateFor(module, latest[module.id]))
           : () => _details(module),
       onUpdate: enabled ? () => _installIndexed(latest[module.id]!) : null,
       onUninstall: enabled ? () => _uninstall(module) : null,
     );
-    final header = [
-      if (_error case final error?) _Note(error),
-      _adultLockTile(),
-    ];
-    if (modules != null &&
+    final sortable =
+        modules != null &&
         modules.length > 1 &&
         _store.profile.admin &&
         !_store.locked &&
-        !AppScope.of(context).television) {
-      return _reorderable(modules, header, card);
+        !AppScope.of(context).television;
+    final header = [
+      if (_error case final error?) _Note(error),
+      if (sortable) const _SortHint(),
+      _adultLockTile(),
+    ];
+    if (sortable) {
+      return _reorderable(
+        modules!,
+        header,
+        (module) => card(module, dragHandle: true),
+      );
     }
     return _list([
       ...header,
@@ -801,6 +809,7 @@ class _ModuleCard extends StatelessWidget {
     this.leading = const [],
     this.actions = const [],
     this.onTap,
+    this.dragHandle = false,
   });
   final String name;
   final bool adult;
@@ -811,6 +820,7 @@ class _ModuleCard extends StatelessWidget {
   final List<Widget> leading;
   final List<Widget> actions;
   final VoidCallback? onTap;
+  final bool dragHandle;
 
   void _reveal(BuildContext context) {
     final box = context.findRenderObject();
@@ -859,6 +869,17 @@ class _ModuleCard extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (dragHandle)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 3, right: 8),
+                    child: Icon(
+                      Icons.drag_handle_rounded,
+                      size: 22,
+                      color: theme.colorScheme.onSurfaceVariant.withValues(
+                        alpha: 0.55,
+                      ),
+                    ),
+                  ),
                 Expanded(child: details),
                 ?trailing,
               ],
@@ -934,6 +955,7 @@ class _InstalledCard extends StatelessWidget {
     required this.onDetails,
     required this.onUpdate,
     required this.onUninstall,
+    this.dragHandle = false,
   });
   final SourceModule module;
   final ModuleIndexEntry? update;
@@ -943,6 +965,7 @@ class _InstalledCard extends StatelessWidget {
   final VoidCallback onDetails;
   final VoidCallback? onUpdate;
   final VoidCallback? onUninstall;
+  final bool dragHandle;
 
   @override
   Widget build(BuildContext context) {
@@ -953,6 +976,7 @@ class _InstalledCard extends StatelessWidget {
       adult: module.adult,
       version: module.version,
       id: module.id,
+      dragHandle: dragHandle,
       body: [
         if (module.error.isNotEmpty)
           Text(module.error, style: TextStyle(color: colors.error))
@@ -1469,6 +1493,45 @@ class _Loading extends StatelessWidget {
     padding: EdgeInsets.all(24),
     child: Center(child: CircularProgressIndicator()),
   );
+}
+
+class _SortHint extends StatelessWidget {
+  const _SortHint();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: colors.secondaryContainer.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.swap_vert_rounded,
+              size: 18,
+              color: colors.onSecondaryContainer,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '长按卡片拖动即可调整片源标签顺序，并同步首页上方标签与数据源诊断的顺序。',
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.4,
+                  color: colors.onSecondaryContainer,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _Note extends StatelessWidget {
