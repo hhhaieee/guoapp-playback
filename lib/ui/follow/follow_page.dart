@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -6,7 +8,7 @@ import '../../local_store.dart';
 import '../../models.dart';
 import '../../source_modules.dart';
 import '../app_scope.dart';
-import '../detail/detail_page.dart';
+import '../player/playback_launcher.dart';
 import '../settings/settings_rows.dart';
 import '../shell/app_shell.dart';
 import '../widgets/drama_grid.dart';
@@ -86,10 +88,7 @@ class _FollowPageState extends State<FollowPage> {
     if (widget.store.following(drama.id)?.hasUpdates ?? false) {
       saveSetting(context, () => widget.store.markUpdatesRead(drama.id));
     }
-    openPage<void>(
-      context,
-      (_) => DetailPage(store: widget.store, drama: drama),
-    );
+    unawaited(openDrama(context, store: widget.store, drama: drama));
   }
 
   Future<void> _unfollow(Set<String> ids) async {

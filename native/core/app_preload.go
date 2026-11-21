@@ -17,6 +17,10 @@ type nativePreloadKey struct{}
 
 const nativePreloadLimit = 4 << 20
 
+// 预缓冲预算硬上限：即便用户选择 1000MB，单次内存预热也不超过该值，
+// 避免为长视频在内存中缓存过多分段导致 OOM。其余数据由 Range 边播边取。
+const nativePreloadMemoryCap = 64 << 20
+
 func (engine *nativeEngine) nativePreload(ctx context.Context, input nativeInput) (nativePlan, error) {
 	ctx = context.WithValue(ctx, BackgroundCatalogKey{}, true)
 	ctx = context.WithValue(ctx, nativePreloadKey{}, true)
@@ -29,8 +33,24 @@ func (engine *nativeEngine) nativePreload(ctx context.Context, input nativeInput
 	stream := engine.stream
 	engine.mu.Unlock()
 	if exists && stream != nil && choice.streamSession != "" {
-		warming, cancel := context.WithTimeout(ctx, 6*time.Second)
-		plan.PrefetchedBytes = stream.nativePrefetch(warming, choice.streamSession, plan.URL, input.Quality)
+		budget := int64(nativePreloadLimit)
+		if input.PrebufferMB > 0 {
+			budget = int64(input.PrebufferMB) << 20
+			if budget > nativePreloadMemoryCap {
+				budget = nativePreloadMemoryCap
+			}
+		}
+		// 预算越大，允许的预热分段越多、超时越宽裕。
+		timeout := 6 * time.Second
+		segments := 2
+		if budget > nativePreloadLimit {
+			timeout = 20 * time.Second
+			segments = 24
+		}
+		warming, cancel := context.WithTimeout(ctx, timeout)
+		plan.PrefetchedBytes = stream.nativePrefetch(
+			warming, choice.streamSession, plan.URL, input.Quality, budget, segments,
+		)
 		cancel()
 	}
 	if err := ctx.Err(); err != nil {
@@ -40,22 +60,28 @@ func (engine *nativeEngine) nativePreload(ctx context.Context, input nativeInput
 	return plan, nil
 }
 
-func (stream *nativeStreamServer) nativePrefetch(ctx context.Context, token, entry string, quality int) int64 {
+func (stream *nativeStreamServer) nativePrefetch(ctx context.Context, token, entry string, quality int, budget int64, maxSegments int) int64 {
 	stream.mu.Lock()
 	session := stream.sessions[token]
 	stream.mu.Unlock()
 	if session == nil {
 		return 0
 	}
+	if budget <= 0 {
+		budget = nativePreloadLimit
+	}
+	if maxSegments <= 0 {
+		maxSegments = 2
+	}
 	ctx, cancel := context.WithCancel(providerMediaContext(ctx, session.credentials))
 	defer cancel()
 	stop := context.AfterFunc(session.ctx, cancel)
 	defer stop()
-	remaining, requests := int64(nativePreloadLimit), 0
+	remaining, requests := budget, 0
 	visited := map[string]bool{}
 	var warm func(string, int) bool
 	warm = func(local string, depth int) bool {
-		if ctx.Err() != nil || remaining <= 0 || requests >= 8 || depth > 2 || visited[local] {
+		if ctx.Err() != nil || remaining <= 0 || requests >= 64 || depth > 6 || visited[local] {
 			return false
 		}
 		visited[local] = true
@@ -151,14 +177,14 @@ func (stream *nativeStreamServer) nativePrefetch(ctx context.Context, token, ent
 				break
 			}
 			segments++
-			if master || segments >= 2 || seconds >= 8 {
+			if master || segments >= maxSegments || seconds >= float64(maxSegments*4) || remaining <= 0 {
 				break
 			}
 		}
 		return true
 	}
 	warm(entry, 0)
-	return nativePreloadLimit - remaining
+	return budget - remaining
 }
 
 var nativeContentRangePattern = regexp.MustCompile(`^bytes ([0-9]+)-([0-9]+)/([0-9]+)$`)

@@ -3,6 +3,7 @@ import UIKit
 import DuanjuCore
 import CFNetwork
 import AVFoundation
+import CoreMedia
 import MediaPlayer
 
 @main
@@ -10,6 +11,8 @@ import MediaPlayer
   private var originalBrightness: CGFloat?
   private let volumeView = MPVolumeView(frame: CGRect(x: -100, y: -100, width: 1, height: 1))
   private var mediaControls: MediaControls?
+  private var nativePip: NativePictureInPicture?
+  private var volumeWatcher: VolumeKeyWatcher?
 
   private var keyWindow: UIWindow? {
     UIApplication.shared.connectedScenes
@@ -32,6 +35,12 @@ import MediaPlayer
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "MediaControls") {
       mediaControls = MediaControls(messenger: registrar.messenger())
+    }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "NativePip") {
+      nativePip = NativePictureInPicture(messenger: registrar.messenger())
+    }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "VolumeWatcher") {
+      volumeWatcher = VolumeKeyWatcher(messenger: registrar.messenger())
     }
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "DeviceSettings") {
       let channel = FlutterMethodChannel(name: "duanju/device", binaryMessenger: registrar.messenger())
@@ -216,5 +225,207 @@ final class MediaControls {
     resumeAfterInterruption = false
     let center = MPNowPlayingInfoCenter.default()
     center.nowPlayingInfo = nil
+  }
+}
+
+// MARK: - 系统画中画（AVPlayer + AVPictureInPictureController）
+// media_kit 使用 libmpv 渲染，无法直接系统 PiP；进入 PiP 时用独立 AVPlayer
+// 播放同一地址（Go 核心提供的本地代理，已含鉴权/解密），与 Flutter 播放器同步进度。
+@available(iOS 15.0, *)
+final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelegate {
+  private let channel: FlutterMethodChannel
+  private var player: AVPlayer?
+  private var playerLayer: AVPlayerLayer?
+  private var pipController: AVPictureInPictureController?
+  private var playerItem: AVPlayerItem?
+  private var timeObserver: Any?
+  private var lastRate = 1.0
+  private var kvoToken: NSKeyValueObservation?
+
+  init(messenger: FlutterBinaryMessenger) {
+    channel = FlutterMethodChannel(name: "duanju/pip", binaryMessenger: messenger)
+    super.init()
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard let self else { result(nil); return }
+      switch call.method {
+      case "supported":
+        result(AVPictureInPictureController.isPictureInPictureSupported())
+      case "enter":
+        self.enter(call.arguments as? [String: Any] ?? [:])
+        result(true)
+      case "exit":
+        self.exit()
+        result(nil)
+      case "update":
+        self.update(call.arguments as? [String: Any] ?? [:])
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  private func prepareAudio() {
+    let session = AVAudioSession.sharedInstance()
+    try? session.setCategory(.playback, mode: .moviePlayback)
+    try? session.setActive(true)
+  }
+
+  private func enter(_ args: [String: Any]) {
+    guard AVPictureInPictureController.isPictureInPictureSupported(),
+          let urlString = args["url"] as? String,
+          let url = URL(string: urlString) else { return }
+    prepareAudio()
+
+    var options: [String: Any] = [:]
+    if let headers = args["headers"] as? [String: String], !headers.isEmpty {
+      options["AVURLAssetHTTPHeaderFieldsKey"] = headers
+    }
+    let asset = AVURLAsset(url: url, options: options)
+    let item = AVPlayerItem(asset: asset)
+    let newPlayer = AVPlayer(playerItem: item)
+    newPlayer.rate = 0
+
+    let layer = AVPlayerLayer(player: newPlayer)
+    layer.frame = CGRect(x: 0, y: 0, width: 2, height: 2)
+    layer.videoGravity = .resizeAspect
+
+    // 需要一个在窗口层级中的承载视图，PiP 才能取到 layer。
+    let host = UIView(frame: CGRect(x: 0, y: 0, width: 2, height: 2))
+    host.backgroundColor = .clear
+    host.alpha = 0.01
+    host.isUserInteractionEnabled = false
+    if let window = UIApplication.shared.connectedScenes
+        .compactMap({ $0 as? UIWindowScene })
+        .flatMap({ $0.windows })
+        .first(where: { $0.isKeyWindow }) {
+      window.addSubview(host)
+      host.layer.addSublayer(layer)
+      self.pipHost = host
+    }
+
+    self.player = newPlayer
+    self.playerItem = item
+    self.playerLayer = layer
+
+    if #available(iOS 14.2, *) {
+      let controller = AVPictureInPictureController(playerLayer: layer)
+      controller.delegate = self
+      controller.canStartPictureInPictureAutomaticallyFromInline = false
+      self.pipController = controller
+    }
+
+    let position = (args["positionMs"] as? NSNumber)?.doubleValue ?? 0
+    let rate = (args["rate"] as? NSNumber)?.doubleValue ?? 1
+    self.lastRate = rate > 0 ? rate : 1
+    let time = CMTime(value: Int64(position), timescale: 1000)
+    item.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+      guard let self else { return }
+      newPlayer.rate = Float(self.lastRate)
+      if let controller = self.pipController, controller.isPictureInPicturePossible {
+        controller.startPictureInPicture()
+      } else {
+        // PiP 尚不可用时，等 status 就绪再试。
+        self.kvoToken = item.observe(\.status, options: [.new]) { [weak self] observed, _ in
+          guard let self, observed.status == .readyToPlay else { return }
+          self.kvoToken = nil
+          if let controller = self.pipController, controller.isPictureInPicturePossible {
+            controller.startPictureInPicture()
+          }
+        }
+      }
+    }
+  }
+
+  private var pipHost: UIView?
+
+  private func update(_ args: [String: Any]) {
+    guard let player else { return }
+    if let playing = args["playing"] as? Bool {
+      player.rate = playing ? Float(lastRate) : 0
+    }
+    if let rate = (args["rate"] as? NSNumber)?.doubleValue, rate > 0 {
+      lastRate = rate
+      if player.rate > 0 { player.rate = Float(rate) }
+    }
+    if let seeking = args["seek"] as? Bool, seeking,
+       let position = (args["positionMs"] as? NSNumber)?.doubleValue {
+      player.seek(to: CMTime(value: Int64(position), timescale: 1000), toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+  }
+
+  private func exit() {
+    pipController?.stopPictureInPicture()
+    cleanup()
+  }
+
+  private func cleanup() {
+    if let timeObserver { player?.removeTimeObserver(timeObserver) }
+    timeObserver = nil
+    kvoToken = nil
+    player?.pause()
+    pipController?.delegate = nil
+    pipController = nil
+    playerLayer?.removeFromSuperlayer()
+    playerLayer = nil
+    pipHost?.removeFromSuperview()
+    pipHost = nil
+    playerItem = nil
+    player = nil
+  }
+
+  // MARK: AVPictureInPictureControllerDelegate
+  func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+    channel.invokeMethod("state", arguments: ["active": true])
+  }
+
+  func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+    channel.invokeMethod("state", arguments: ["active": false])
+    cleanup()
+  }
+
+  func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error) {
+    channel.invokeMethod("state", arguments: ["active": false, "error": error.localizedDescription])
+    cleanup()
+  }
+}
+
+// MARK: - 实体音量键提示（监听系统输出音量变化）
+final class VolumeKeyWatcher: NSObject {
+  private let channel: FlutterMethodChannel
+  private var observation: NSKeyValueObservation?
+  private var suppress = false
+  private var lastVolume: Float = 0
+
+  init(messenger: FlutterBinaryMessenger) {
+    channel = FlutterMethodChannel(name: "duanju/volume", binaryMessenger: messenger)
+    super.init()
+    lastVolume = AVAudioSession.sharedInstance().outputVolume
+    observation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.new]) { [weak self] session, _ in
+      guard let self else { return }
+      let value = session.outputVolume
+      if abs(value - self.lastVolume) < 0.001 { return }
+      self.lastVolume = value
+      if self.suppress { return }
+      self.channel.invokeMethod("changed", arguments: [
+        "volume": Double(value),
+        "enabled": true,
+      ])
+    }
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard let self else { result(nil); return }
+      switch call.method {
+      case "setEnabled":
+        // enabled 状态由 Flutter 侧维护，这里仅应答。
+        result(nil)
+      case "beginSuppressed", "endSuppressed":
+        self.suppress = call.method == "beginSuppressed"
+        result(nil)
+      case "volume":
+        result(Double(AVAudioSession.sharedInstance().outputVolume))
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
   }
 }

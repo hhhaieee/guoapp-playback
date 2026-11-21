@@ -25,7 +25,7 @@ import '../widgets/motion/motion_widgets.dart';
 import '../widgets/source_bar.dart';
 
 enum AppTab {
-  explore('发现', Icons.explore_outlined, Icons.explore),
+  explore('首页', Icons.home_outlined, Icons.home_rounded),
   follow('追剧', Icons.bookmark_border_rounded, Icons.bookmark_rounded),
   history('历史', Icons.history_rounded, Icons.history_rounded),
   mine('我的', Icons.person_outline_rounded, Icons.person_rounded);

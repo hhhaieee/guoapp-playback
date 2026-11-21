@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../local_store.dart';
@@ -5,7 +7,7 @@ import '../../models.dart';
 import '../../source_modules.dart';
 import '../../watch_history.dart';
 import '../app_scope.dart';
-import '../detail/detail_page.dart';
+import '../player/playback_launcher.dart';
 import '../settings/settings_rows.dart';
 import '../shell/app_shell.dart';
 import '../theme/motion.dart';
@@ -631,9 +633,8 @@ class _HistoryPageState extends State<HistoryPage> {
       heroScope: hero ? 'drama' : null,
       selected: selection?.contains(drama.id),
       onTap: selection == null
-          ? () => openPage<void>(
-              context,
-              (_) => DetailPage(store: widget.store, drama: drama),
+          ? () => unawaited(
+              openDrama(context, store: widget.store, drama: drama),
             )
           : () => _toggle(drama.id),
       onMore: selection == null

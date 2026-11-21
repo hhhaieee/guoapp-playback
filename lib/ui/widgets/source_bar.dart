@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../models.dart';
 import '../app_scope.dart';
 import 'bar_button.dart';
 import 'page_header.dart';
@@ -18,6 +19,10 @@ class SourceBar extends StatelessWidget {
     this.televisionLeading,
     this.leading = const [],
     this.actions = const [],
+    this.sources = const [],
+    this.currentSourceId = '',
+    this.onSelectSource,
+    this.onMoreSources,
   });
   final List<Widget> leading;
   final String source;
@@ -29,6 +34,12 @@ class SourceBar extends StatelessWidget {
   final ValueChanged<String>? onForgetSearch;
   final Widget? televisionLeading;
   final List<Widget> actions;
+
+  /// 首页源快捷切换：最多展示 5 个，其余由圆形「更多」图标承载。
+  final List<SourceSite> sources;
+  final String currentSourceId;
+  final void Function(String id)? onSelectSource;
+  final VoidCallback? onMoreSources;
 
   @override
   Widget build(BuildContext context) {
@@ -47,10 +58,7 @@ class SourceBar extends StatelessWidget {
       onPressed: onOpenSearch,
     );
     return switch (form) {
-      FormFactor.phone => PageHeader(
-        title: source,
-        actions: [...leading, switcher, search, ...actions],
-      ),
+      FormFactor.phone => _phoneHomeHeader(context, hint, switcher),
       FormFactor.pad || FormFactor.window => PageHeader(
         title: source,
         actions: [
@@ -87,6 +95,92 @@ class SourceBar extends StatelessWidget {
         ),
       ),
     };
+  }
+
+  /// 手机首页：顶部搜索框 + 源快捷切换（5 个）+ 其余源圆形更多图标。
+  Widget _phoneHomeHeader(
+    BuildContext context,
+    String hint,
+    Widget switcher,
+  ) {
+    final colors = Theme.of(context).colorScheme;
+    final hasChips = sources.isNotEmpty && onSelectSource != null;
+    return Container(
+      color: colors.surface,
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: _RecentSearchField(
+                  width: double.infinity,
+                  hint: hint,
+                  controller: searchController,
+                  recent: recentSearches,
+                  onSubmitted: onSearchSubmitted,
+                  onForget: onForgetSearch,
+                ),
+              ),
+              if (leading.isNotEmpty) ...leading,
+              switcher,
+            ],
+          ),
+          if (hasChips) const SizedBox(height: 8),
+          if (hasChips)
+            SizedBox(
+              height: 34,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: sources.take(5).length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      itemBuilder: (context, index) {
+                        final site = sources[index];
+                        final selected = site.id == currentSourceId;
+                        return ChoiceChip(
+                          label: Text(
+                            site.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          selected: selected,
+                          showCheckmark: false,
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          onSelected: (_) => onSelectSource?.call(site.id),
+                        );
+                      },
+                    ),
+                  ),
+                  if (sources.length > 5)
+                    Builder(
+                      builder: (anchor) => Padding(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: SizedBox(
+                          width: 34,
+                          height: 34,
+                          child: IconButton.filledTonal(
+                            onPressed: onMoreSources != null
+                                ? () => onMoreSources!()
+                                : () => onSwitchSource(anchor),
+                            icon: const Icon(Icons.more_horiz_rounded, size: 20),
+                            tooltip: '更多站源',
+                            padding: EdgeInsets.zero,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ...actions,
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 

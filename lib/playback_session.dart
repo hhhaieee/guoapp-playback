@@ -331,6 +331,10 @@ class PlaybackSession extends ChangeNotifier {
       ? player.state.position.inMilliseconds / 1000
       : _resumePosition;
 
+  /// 当前播放地址与请求头，供 iOS 系统画中画的独立 AVPlayer 使用。
+  String? get mediaUrl => _plan?.url.isNotEmpty == true ? _plan!.url : null;
+  Map<String, String> get mediaHeaders => _plan?.headers ?? const {};
+
   bool get _usable => !_closed && store.profileEpoch == _epoch;
   bool _current(int ticket) => _usable && ticket == _generation;
 

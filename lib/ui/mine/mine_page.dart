@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -7,7 +9,7 @@ import '../../download_overview.dart';
 import '../../local_store.dart';
 import '../../models.dart';
 import '../app_scope.dart';
-import '../detail/detail_page.dart';
+import '../player/playback_launcher.dart';
 import '../downloads/downloads_page.dart';
 import '../history/history_page.dart';
 import '../modules/modules_page.dart';
@@ -113,9 +115,8 @@ class MinePage extends StatelessWidget {
           ? '已看完'
           : '看到第 ${entry.episode} 集',
       tag: SourceSite.byId(drama.source).name,
-      onTap: () => openPage<void>(
-        context,
-        (_) => DetailPage(store: store, drama: drama),
+      onTap: () => unawaited(
+        openDrama(context, store: store, drama: drama),
       ),
     );
   }

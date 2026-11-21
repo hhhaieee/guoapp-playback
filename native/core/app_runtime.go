@@ -98,6 +98,8 @@ type nativeInput struct {
 	File            string                  `json:"file"`
 	URL             string                  `json:"url"`
 	Token           string                  `json:"token"`
+	RemoveAds       bool                    `json:"removeAds"`
+	PrebufferMB     int                     `json:"prebufferMB"`
 }
 
 type nativeCatalogResult struct {
@@ -649,6 +651,10 @@ func (engine *nativeEngine) nativeResolve(ctx context.Context, input nativeInput
 		if plan, found, err := engine.downloads.localPlan(input.Drama.ID, input.Index); found || err != nil {
 			return plan, err
 		}
+	}
+	// 将「去除片源插播广告」开关同步到流服务，供 m3u8 改写阶段使用。
+	if stream, err := engine.streamServer(); err == nil {
+		stream.setRemoveAds(input.RemoveAds)
 	}
 	task := Task{DramaID: input.Drama.ID, DramaTitle: input.Drama.Title, Chapter: input.Chapter, Index: input.Index}
 	media, err := engine.downloader.resolveProviderMedia(ctx, task)

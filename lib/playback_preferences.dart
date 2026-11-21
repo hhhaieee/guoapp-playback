@@ -50,6 +50,23 @@ enum DanmakuMerge {
   final String label;
 }
 
+/// 长视频缓存预缓冲容量档位（MB）。0 表示关闭。
+/// 短剧仍按预加载后续 3-4 集处理，与该档位无关。
+enum PrebufferSize {
+  off(0, '关闭'),
+  mb200(200, '200 MB'),
+  mb500(500, '500 MB'),
+  mb750(750, '750 MB'),
+  mb1000(1000, '1000 MB');
+
+  const PrebufferSize(this.megabytes, this.label);
+
+  final int megabytes;
+  final String label;
+
+  int get bytes => megabytes * 1024 * 1024;
+}
+
 enum VideoFit {
   auto('自动'),
   stretch('拉伸'),
@@ -133,6 +150,9 @@ class PlaybackPreferences {
     this.autoPictureInPicture = false,
     this.backgroundPlayback = false,
     this.videoFit = VideoFit.auto,
+    this.prebufferSize = PrebufferSize.off,
+    this.volumeKeysHud = true,
+    this.removeAds = true,
   });
 
   final double speed;
@@ -169,6 +189,9 @@ class PlaybackPreferences {
   final bool autoPictureInPicture;
   final bool backgroundPlayback;
   final VideoFit videoFit;
+  final PrebufferSize prebufferSize;
+  final bool volumeKeysHud;
+  final bool removeAds;
 
   bool preopens({required bool television}) => preopen ?? !television;
 
@@ -204,6 +227,9 @@ class PlaybackPreferences {
     bool? autoPictureInPicture,
     bool? backgroundPlayback,
     VideoFit? videoFit,
+    PrebufferSize? prebufferSize,
+    bool? volumeKeysHud,
+    bool? removeAds,
   }) => PlaybackPreferences(
     speed: speed ?? this.speed,
     quality: quality ?? this.quality,
@@ -236,6 +262,9 @@ class PlaybackPreferences {
     autoPictureInPicture: autoPictureInPicture ?? this.autoPictureInPicture,
     backgroundPlayback: backgroundPlayback ?? this.backgroundPlayback,
     videoFit: videoFit ?? this.videoFit,
+    prebufferSize: prebufferSize ?? this.prebufferSize,
+    volumeKeysHud: volumeKeysHud ?? this.volumeKeysHud,
+    removeAds: removeAds ?? this.removeAds,
   );
 
   Map<String, dynamic> toJson() => {
@@ -270,6 +299,9 @@ class PlaybackPreferences {
     'autoPictureInPicture': autoPictureInPicture,
     'backgroundPlayback': backgroundPlayback,
     'videoFit': videoFit.name,
+    'prebufferSize': prebufferSize.name,
+    'volumeKeysHud': volumeKeysHud,
+    'removeAds': removeAds,
   };
 
   factory PlaybackPreferences.fromJson(Map<String, dynamic> value) {
@@ -336,6 +368,11 @@ class PlaybackPreferences {
       autoPictureInPicture: value['autoPictureInPicture'] as bool? ?? false,
       backgroundPlayback: value['backgroundPlayback'] as bool? ?? false,
       videoFit: VideoFit.values.asNameMap()[value['videoFit']] ?? VideoFit.auto,
+      prebufferSize:
+          PrebufferSize.values.asNameMap()[value['prebufferSize']] ??
+          PrebufferSize.off,
+      volumeKeysHud: value['volumeKeysHud'] as bool? ?? true,
+      removeAds: value['removeAds'] as bool? ?? true,
     );
   }
 }

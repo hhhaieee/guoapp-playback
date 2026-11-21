@@ -11,7 +11,7 @@ import '../app_scope.dart';
 import '../cover_blur.dart';
 import '../shell/app_shell.dart';
 import '../theme/motion.dart';
-import '../detail/detail_page.dart';
+import '../player/playback_launcher.dart';
 import '../widgets/bar_button.dart';
 import '../widgets/category_tabs.dart';
 import '../widgets/choice_panel.dart';
@@ -106,9 +106,8 @@ class ExplorePageState extends State<ExplorePage> {
     );
   }
 
-  void _open(Drama drama, {bool autoplay = false}) => openPage<void>(
-    context,
-    (_) => DetailPage(store: widget.store, drama: drama, autoplay: autoplay),
+  void _open(Drama drama, {bool autoplay = false}) => unawaited(
+    openDrama(context, store: widget.store, drama: drama, autoplay: autoplay),
   );
 
   Future<void> _pickCategory(BuildContext anchor) async {
@@ -156,7 +155,7 @@ class ExplorePageState extends State<ExplorePage> {
             bottom: false,
             child: Column(
               children: [
-                if (!television) const PageHeader(title: '发现'),
+                if (!television) const PageHeader(title: '首页'),
                 Expanded(
                   child: SourceSite.values.isEmpty
                       ? StatusView(
@@ -218,6 +217,19 @@ class ExplorePageState extends State<ExplorePage> {
                         openSearch(context, widget.store, source),
                     onSearchSubmitted: (query) =>
                         _searchSubmitted(source, query),
+                    sources: widget.store.sources,
+                    currentSourceId: source.id,
+                    onSelectSource: (id) {
+                      if (id != source.id) {
+                        unawaited(
+                          widget.store
+                              .setSource(id)
+                              .catchError((Object _) {}),
+                        );
+                      }
+                    },
+                    onMoreSources: () =>
+                        pickSource(context, widget.store),
                     leading: [
                       if (widget.store.blurCoversButton)
                         if (CoverBlurScope.of(context) case final blur?)

@@ -5,9 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 
 import '../../app_device.dart';
+import '../../ios_picture_in_picture.dart';
 import '../../local_store.dart';
 import '../../picture_in_picture.dart';
 import '../../playback_session.dart';
+import '../../volume_keys_hud.dart';
 import '../app_scope.dart';
 import 'audio_player_page.dart';
 import 'landscape_player_page.dart';
@@ -32,6 +34,9 @@ class _PlaybackPageState extends State<PlaybackPage> {
   bool _windowFullscreen = false;
   final _pageScope = FocusScopeNode(debugLabel: 'playbackPage');
   final _pip = PictureInPicture.instance;
+  final _iosPip = IosPictureInPicture.instance;
+  final _volumeHud = VolumeKeysHud.instance;
+  bool _suspendPipSync = false;
   late bool _wideVideo = _measure();
   late bool _audio = _session.audio;
   MediaQueryData? _media;
@@ -55,6 +60,12 @@ class _PlaybackPageState extends State<PlaybackPage> {
     _padFullscreen.addListener(_padFullscreenChanged);
     _pip.addListener(_pipChanged);
     _pip.onAction = _action;
+    _iosPip.onState = _iosPipState;
+    _iosPip.onAction = _action;
+    _iosPip.addListener(_iosPipChanged);
+    if (_volumeHud.supported) {
+      unawaited(_volumeHud.setEnabled(widget.store.playbackPreferences.volumeKeysHud));
+    }
     _bind();
     WidgetsBinding.instance.addPostFrameCallback((_) => _sync());
   }
@@ -64,6 +75,9 @@ class _PlaybackPageState extends State<PlaybackPage> {
     _session.removeListener(_changed);
     _pip.removeListener(_pipChanged);
     if (_pip.onAction == _action) _pip.onAction = null;
+    if (_iosPip.onAction == _action) _iosPip.onAction = null;
+    if (_iosPip.onState == _iosPipState) _iosPip.onState = null;
+    _iosPip.removeListener(_iosPipChanged);
     _pip.clear();
     if (_pip.window) unawaited(_restore());
     unawaited(_playing?.cancel());
@@ -127,6 +141,25 @@ class _PlaybackPageState extends State<PlaybackPage> {
           widget.store.playbackPreferences.autoPictureInPicture,
     );
     _pip.resize(session.aspectRatio);
+    if (_iosPip.active && !_suspendPipSync) {
+      // 仅同步播放态与倍速；进度交给 AVPlayer 自行推进，避免频繁 seek 造成卡顿。
+      _iosPip.update(playing: playing, rate: session.speed);
+    }
+  }
+
+  void _iosPipChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _iosPipState(bool active, {String? error}) {
+    if (!mounted) return;
+    final foreground = playerVisible(WidgetsBinding.instance.lifecycleState);
+    _session.setForeground(!active && foreground);
+    // PiP 结束回到前台时，恢复被暂停的本地播放器并同步进度。
+    if (!active && foreground && !_session.player.state.playing) {
+      _session.togglePlayback();
+    }
+    setState(() {});
   }
 
   void _pipChanged() {
@@ -162,6 +195,28 @@ class _PlaybackPageState extends State<PlaybackPage> {
   }
 
   Future<void> _enterMini() async {
+    if (defaultTargetPlatform == TargetPlatform.iOS && _iosPip.supported) {
+      final session = _session;
+      final url = session.mediaUrl;
+      if (url != null && url.isNotEmpty) {
+        final ok = await _iosPip.enter(
+          url: url,
+          headers: session.mediaHeaders,
+          positionMs: session.currentPosition * 1000,
+          rate: session.speed,
+          aspectRatio: session.aspectRatio,
+        );
+        if (ok) {
+          _closeRoutesAbove();
+          _session.setLocked(false);
+          // 交给系统 PiP 后暂停本地播放器，避免双份声音；暂停期间不要回写 PiP。
+          _suspendPipSync = true;
+          if (session.player.state.playing) session.togglePlayback();
+          _suspendPipSync = false;
+          return;
+        }
+      }
+    }
     _closeRoutesAbove();
     _session.setLocked(false);
     await _pip.enter(_session.aspectRatio, frame: widget.store.miniWindow);
@@ -247,13 +302,18 @@ class _PlaybackPageState extends State<PlaybackPage> {
                   onClose: () => unawaited(_close()),
                 )
               : PictureInPictureView(handle: widget.handle),
+        if (_volumeHud.supported &&
+            widget.store.playbackPreferences.volumeKeysHud)
+          VolumeHudOverlay(hud: _volumeHud),
       ],
     );
   }
 
   Widget _page(BuildContext context) {
     final form = AppScope.formFactorOf(context);
-    final mini = _pip.available ? () => unawaited(_enterMini()) : null;
+    final pipAvailable = _pip.available ||
+        (defaultTargetPlatform == TargetPlatform.iOS && _iosPip.supported);
+    final mini = pipAvailable ? () => unawaited(_enterMini()) : null;
     if (_audio && form != FormFactor.television) {
       return AudioPlayerPage(
         store: widget.store,

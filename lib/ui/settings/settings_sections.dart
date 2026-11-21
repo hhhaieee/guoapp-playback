@@ -225,13 +225,36 @@ class SettingsSection extends StatelessWidget {
           if (!television)
             SwitchTile(
               title: '点开剧集直接播放',
-              subtitle: '跳过详情页直接进入播放，返回时回到列表',
+              subtitle: '首页/搜索/收藏/历史等入口直接进入播放并从上次进度续播，选集仍在播放器内',
               value: preferences.directPlay,
               onChanged: (value) =>
                   savePreferences(preferences.copyWith(directPlay: value)),
             ),
         ],
       ),
+      if (!television)
+        SettingsCard(
+          children: [
+            ValueTile<PrebufferSize>(
+              title: '长视频预缓冲',
+              subtitle: '播放时从当前位置向后预先缓存到本机，弱网拖动与连续观看更流畅；短剧仍预加载后续 3-4 集',
+              options: {
+                for (final size in PrebufferSize.values)
+                  size: size.label,
+              },
+              value: preferences.prebufferSize,
+              onChanged: (value) =>
+                  savePreferences(preferences.copyWith(prebufferSize: value)),
+            ),
+            SwitchTile(
+              title: '去除片源插播广告',
+              subtitle: '自动过滤 HLS 中的插播广告片段（含异域名短段、明文短段与重复片段）',
+              value: preferences.removeAds,
+              onChanged: (value) =>
+                  savePreferences(preferences.copyWith(removeAds: value)),
+            ),
+          ],
+        ),
       if ((Platform.isAndroid || Platform.isIOS) && !television)
         SettingsCard(
           children: [
@@ -323,17 +346,26 @@ class SettingsSection extends StatelessWidget {
             ),
           ],
         ),
-      if (Platform.isAndroid && !television)
+      if ((Platform.isAndroid || Platform.isIOS) && !television)
         SettingsCard(
           children: [
             SwitchTile(
-              title: '离开应用时自动小窗',
-              subtitle: '播放中回到桌面时自动进入画中画',
+              title: '离开应用时自动画中画',
+              subtitle: '播放中回到桌面时自动进入画中画（横竖屏均可）',
               value: preferences.autoPictureInPicture,
               onChanged: (value) => savePreferences(
                 preferences.copyWith(autoPictureInPicture: value),
               ),
             ),
+            if (Platform.isIOS)
+              SwitchTile(
+                title: '音量键显示提示',
+                subtitle: '用实体音量键调节时显示音量图标，最大/最小音量同样提示',
+                value: preferences.volumeKeysHud,
+                onChanged: (value) => savePreferences(
+                  preferences.copyWith(volumeKeysHud: value),
+                ),
+              ),
           ],
         ),
       if (Platform.isWindows || Platform.isMacOS)

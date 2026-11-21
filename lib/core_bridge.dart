@@ -644,6 +644,12 @@ class NativeRepository extends AppRepository {
   Future<Map<String, dynamic>> _call(Map<String, dynamic> input) async {
     try {
       final action = input['action'] as String;
+      // 将播放相关偏好注入解析/预热请求，供 Go 层去广告与预缓冲使用。
+      if (action == 'resolve' || action == 'preload') {
+        final preferences = access?.playbackPreferences;
+        input['removeAds'] = preferences?.removeAds ?? true;
+        input['prebufferMB'] = preferences?.prebufferSize.megabytes ?? 0;
+      }
       final unrestricted =
           {
             'initialize',

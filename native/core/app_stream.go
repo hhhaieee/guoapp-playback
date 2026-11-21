@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -56,6 +57,15 @@ type nativeStreamServer struct {
 	lan        *http.Server
 	lanPort    int
 	lanListen  string
+	removeAds  atomic.Bool
+}
+
+func (stream *nativeStreamServer) setRemoveAds(enabled bool) {
+	stream.removeAds.Store(enabled)
+}
+
+func (stream *nativeStreamServer) removeAdsEnabled() bool {
+	return stream.removeAds.Load()
 }
 
 func (stream *nativeStreamServer) lanOrigin(device string) (string, error) {
@@ -218,6 +228,10 @@ func (stream *nativeStreamServer) nativeAsset(token string, session *nativeStrea
 }
 
 func (stream *nativeStreamServer) nativeRewrite(token string, session *nativeStreamSession, body, base string) (string, error) {
+	// 去除 HLS 插播广告分段（可经 removeAds 开关控制）。
+	if stream.removeAdsEnabled() {
+		body = stripAdsFromPlaylist(body, base)
+	}
 	var output []string
 	nextPlaylist := false
 	for _, line := range strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {

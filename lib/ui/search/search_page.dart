@@ -9,7 +9,7 @@ import '../../local_store.dart';
 import '../../models.dart';
 import '../../source_catalog.dart';
 import '../app_scope.dart';
-import '../detail/detail_page.dart';
+import '../player/playback_launcher.dart';
 import '../shell/app_shell.dart';
 import '../theme/motion.dart';
 import '../widgets/drama_grid.dart';
@@ -110,9 +110,8 @@ class _SearchPageState extends State<SearchPage> {
     });
   }
 
-  void _open(Drama drama) => openPage<void>(
-    context,
-    (_) => DetailPage(store: widget.store, drama: drama),
+  void _open(Drama drama) => unawaited(
+    openDrama(context, store: widget.store, drama: drama),
   );
 
   @override

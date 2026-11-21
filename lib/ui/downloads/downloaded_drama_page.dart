@@ -15,7 +15,7 @@ import '../../download_overview.dart';
 import '../../local_store.dart';
 import '../../models.dart';
 import '../app_scope.dart';
-import '../detail/detail_page.dart';
+import '../player/playback_launcher.dart';
 import '../player/playback_handle.dart';
 import '../player/playback_page.dart';
 import '../shell/app_shell.dart';
@@ -262,9 +262,8 @@ class _DownloadedDramaPageState extends State<DownloadedDramaPage> {
     icon: icon ? Icons.refresh_rounded : null,
   );
 
-  void _openDetail(Drama drama) => openPage<void>(
-    context,
-    (_) => DetailPage(store: widget.store, drama: drama),
+  void _openDetail(Drama drama) => unawaited(
+    openDrama(context, store: widget.store, drama: drama),
   );
 
   Widget _editButton(DownloadedDrama? item, {bool icon = true}) => _textButton(
