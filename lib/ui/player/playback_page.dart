@@ -159,7 +159,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
     if (mounted) setState(() {});
   }
 
-  void _iosPipState(bool active, {String? error}) {
+  void _iosPipState(bool active, {String? error, double? positionMs}) {
     if (!mounted) return;
     final foreground = playerVisible(WidgetsBinding.instance.lifecycleState);
     _session.setForeground(!active && foreground);
@@ -169,8 +169,18 @@ class _PlaybackPageState extends State<PlaybackPage> {
       if (_session.player.state.playing) _session.togglePlayback();
       _suspendPipSync = false;
     } else if (foreground && !_session.player.state.playing) {
-      // PiP 结束回到前台时，恢复被暂停的本地播放器并同步进度。
-      _session.togglePlayback();
+      // PiP 结束回到前台时，先把系统 PiP 的进度同步回本地播放器，再恢复播放，
+      // 否则返回全屏后播放进度仍停留在进入 PiP 之前的位置。
+      if (positionMs != null && positionMs > 0) {
+        unawaited(() async {
+          await _session.seekTo(Duration(milliseconds: positionMs.round()));
+          if (mounted && !_session.player.state.playing) {
+            _session.togglePlayback();
+          }
+        }());
+      } else {
+        _session.togglePlayback();
+      }
     }
     if (!active && error != null && error.isNotEmpty) {
       ScaffoldMessenger.maybeOf(context)

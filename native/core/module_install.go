@@ -72,12 +72,13 @@ func (engine *nativeEngine) modules() ([]nativeModuleInfo, error) {
 	return items, nil
 }
 
-func (engine *nativeEngine) prepareModule(ctx context.Context, file, address, indexed string, bundled bool) (nativeModuleInfo, error) {
+func (engine *nativeEngine) prepareModule(ctx context.Context, file, address, indexed string, bundled bool, baibao ...bool) (nativeModuleInfo, error) {
 	var raw []byte
 	var err error
+	useBaibao := len(baibao) > 0 && baibao[0]
 	switch {
 	case indexed != "":
-		raw, err = engine.indexedModulePackage(ctx, indexed, bundled)
+		raw, err = engine.indexedModulePackage(ctx, indexed, bundled, useBaibao)
 	case address != "":
 		raw, err = engine.downloadModulePackage(ctx, address)
 	default:

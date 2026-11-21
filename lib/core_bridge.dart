@@ -122,11 +122,13 @@ abstract class AppRepository {
   bool get supportsSourceManagement => false;
   Future<List<SourceModule>> modules() async => const [];
   Future<ModuleStore> moduleIndex() async => throw AppFailure('当前环境不支持模块商店');
+  Future<ModuleStore> baibaoIndex() async => throw AppFailure('当前环境不支持模块商店');
   Future<SourceModule> prepareModule({
     String file = '',
     String url = '',
     String indexed = '',
     bool bundled = false,
+    bool baibao = false,
   }) async => throw AppFailure('当前环境不支持安装模块');
   Future<String> installModule(String token) async =>
       throw AppFailure('当前环境不支持安装模块');
@@ -833,11 +835,22 @@ class NativeRepository extends AppRepository {
   }
 
   @override
+  Future<ModuleStore> baibaoIndex() async {
+    _adminPermission();
+    final result = await _call({'action': 'baibaoIndex'});
+    return ModuleStore([
+      for (final row in result['items'] as List? ?? const [])
+        ModuleIndexEntry.fromJson(Map<String, dynamic>.from(row as Map)),
+    ], warning: result['warning'] as String? ?? '');
+  }
+
+  @override
   Future<SourceModule> prepareModule({
     String file = '',
     String url = '',
     String indexed = '',
     bool bundled = false,
+    bool baibao = false,
   }) async {
     _adminPermission();
     return SourceModule.fromJson(
@@ -847,6 +860,7 @@ class NativeRepository extends AppRepository {
         'url': url,
         'source': indexed,
         'bundled': bundled,
+        'baibao': baibao,
       }),
     );
   }

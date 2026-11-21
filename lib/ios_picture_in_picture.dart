@@ -17,7 +17,7 @@ class IosPictureInPicture extends ChangeNotifier {
   static const _channel = MethodChannel('duanju/pip');
 
   void Function(String action)? onAction;
-  void Function(bool active, {String? error})? onState;
+  void Function(bool active, {String? error, double? positionMs})? onState;
   bool _supported = false;
   bool _active = false;
 
@@ -39,7 +39,12 @@ class IosPictureInPicture extends ChangeNotifier {
         final args = call.arguments as Map? ?? const {};
         final active = args['active'] == true;
         _active = active;
-        onState?.call(active, error: args['error'] as String?);
+        final positionMs = (args['positionMs'] as num?)?.toDouble();
+        onState?.call(
+          active,
+          error: args['error'] as String?,
+          positionMs: positionMs,
+        );
         if (!active) onAction?.call('stopped');
     }
   }

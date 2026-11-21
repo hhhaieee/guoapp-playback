@@ -5,7 +5,8 @@ enum ThemeColor {
   amber('琥珀', 0xFFB37000),
   teal('青绿', 0xFF009C84),
   blue('海蓝', 0xFF0089D0),
-  violet('蓝紫', 0xFF7970D5);
+  violet('蓝紫', 0xFF7970D5),
+  star('星星', 0xFF3EE0FF);
 
   const ThemeColor(this.label, this.seed);
   final String label;

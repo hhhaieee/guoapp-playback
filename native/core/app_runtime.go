@@ -91,6 +91,7 @@ type nativeInput struct {
 	Sequence        int64                   `json:"sequence"`
 	Force           bool                    `json:"force"`
 	Bundled         bool                    `json:"bundled"`
+	Baibao          bool                    `json:"baibao"`
 	Version         string                  `json:"version"`
 	Since           string                  `json:"since"`
 	Account         json.RawMessage         `json:"account"`
@@ -388,8 +389,10 @@ func nativeDispatch(input nativeInput) (any, error) {
 		return map[string]any{"items": items}, err
 	case "moduleIndex":
 		return engine.moduleStore(ctx)
+	case "baibaoIndex":
+		return engine.baibaoStore(ctx)
 	case "prepareModule":
-		return engine.prepareModule(ctx, input.File, input.URL, input.Source, input.Bundled)
+		return engine.prepareModule(ctx, input.File, input.URL, input.Source, input.Bundled, input.Baibao)
 	case "installModule":
 		return engine.installModule(input.Token)
 	case "uninstallModule":

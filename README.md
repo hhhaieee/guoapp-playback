@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png" width="120" alt="小果影视图标">
+<img src="ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png" width="120" alt="星星夜剧图标">
 
-# 小果影视
+# 星星夜剧
 
 Flutter 多端独立影视应用，手机、平板、电脑和电视分别适配
 
@@ -84,7 +84,7 @@ Flutter 多端独立影视应用，手机、平板、电脑和电视分别适配
 > macOS 首次打开前在终端执行：
 >
 > ```sh
-> xattr -dr com.apple.quarantine /Applications/小果影视.app
+> xattr -dr com.apple.quarantine /Applications/星星夜剧.app
 > ```
 
 ## 使用说明

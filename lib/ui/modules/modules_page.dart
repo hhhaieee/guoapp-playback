@@ -59,7 +59,7 @@ List<SourceModule> _arranged(List<SourceModule> modules, List<String> order) {
   return [for (final id in order) ?byId.remove(id), ...byId.values];
 }
 
-const _tabLabels = ['已安装', '在线仓库', '内置', '手动'];
+const _tabLabels = ['已安装', '在线仓库', '百宝袋', '内置', '手动'];
 
 class _ModulesPageState extends State<ModulesPage>
     with SingleTickerProviderStateMixin {
@@ -70,6 +70,8 @@ class _ModulesPageState extends State<ModulesPage>
   String? _error;
   ModuleStore? _index;
   String? _indexError;
+  ModuleStore? _baibaoIndex;
+  String? _baibaoIndexError;
   bool _busy = false;
   final _groupsScope = FocusScopeNode(
     debugLabel: 'modules-groups',
@@ -94,6 +96,7 @@ class _ModulesPageState extends State<ModulesPage>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _refresh();
       _loadIndex();
+      _loadBaibaoIndex();
     });
   }
 
@@ -139,6 +142,19 @@ class _ModulesPageState extends State<ModulesPage>
     }
   }
 
+  Future<void> _loadBaibaoIndex() async {
+    setState(() {
+      _baibaoIndex = null;
+      _baibaoIndexError = null;
+    });
+    try {
+      final index = await _repository.baibaoIndex();
+      if (mounted) setState(() => _baibaoIndex = index);
+    } catch (failure) {
+      if (mounted) setState(() => _baibaoIndexError = '$failure');
+    }
+  }
+
   void _show(String message) {
     if (mounted) {
       ScaffoldMessenger.of(
@@ -165,6 +181,16 @@ class _ModulesPageState extends State<ModulesPage>
       await _repository.prepareModule(
         indexed: entry.id,
         bundled: entry.bundled,
+      ),
+    ),
+  );
+
+  Future<void> _installBaibaoIndexed(ModuleIndexEntry entry) => _run(
+    () async => _install(
+      await _repository.prepareModule(
+        indexed: entry.id,
+        bundled: entry.bundled,
+        baibao: true,
       ),
     ),
   );
@@ -482,6 +508,46 @@ class _ModulesPageState extends State<ModulesPage>
     ]);
   }
 
+  Widget _baibaoTab() {
+    final enabled = _canInstall;
+    final installed = {for (final module in _modules ?? const []) module.id};
+    // 百宝袋只展示每个插件的最新版本。
+    final latest = <String, ModuleIndexEntry>{};
+    for (final entry
+        in _baibaoIndex?.entries ?? const <ModuleIndexEntry>[]) {
+      final current = latest[entry.id];
+      if (current == null ||
+          isNewerModuleVersion(entry.version, current.version)) {
+        latest[entry.id] = entry;
+      }
+    }
+    final listed = latest.values.toList()
+      ..sort((a, b) => a.id.compareTo(b.id));
+    final entries = [
+      for (final entry in listed)
+        if (!installed.contains(entry.id)) entry,
+    ];
+    final warning = _baibaoIndex?.warning ?? '';
+    return _list([
+      if (warning.isNotEmpty) _Note(warning),
+      if (_baibaoIndexError case final error?)
+        _Note(error)
+      else if (_baibaoIndex == null)
+        const _Loading()
+      else if (listed.isEmpty)
+        _Note('百宝袋仓库里还没有插件。')
+      else if (entries.isEmpty)
+        _Note('百宝袋里的插件都已安装。')
+      else
+        for (final entry in entries)
+          _IndexCard(
+            entry: entry,
+            records: null,
+            onInstall: enabled ? () => _installBaibaoIndexed(entry) : null,
+          ),
+    ]);
+  }
+
   Widget _manualTab() {
     final enabled = _canInstall;
     return _list([
@@ -506,13 +572,21 @@ class _ModulesPageState extends State<ModulesPage>
     ]);
   }
 
-  Widget? _refreshButton() => _tabs.index == 1
-      ? BarButton(
-          icon: Icons.refresh_rounded,
-          tooltip: '刷新',
-          onPressed: _index == null && _indexError == null ? null : _loadIndex,
-        )
-      : null;
+  Widget? _refreshButton() => switch (_tabs.index) {
+    1 => BarButton(
+      icon: Icons.refresh_rounded,
+      tooltip: '刷新',
+      onPressed: _index == null && _indexError == null ? null : _loadIndex,
+    ),
+    2 => BarButton(
+      icon: Icons.refresh_rounded,
+      tooltip: '刷新',
+      onPressed: _baibaoIndex == null && _baibaoIndexError == null
+          ? null
+          : _loadBaibaoIndex,
+    ),
+    _ => null,
+  };
 
   Widget _tabBar() => Padding(
     padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -538,6 +612,7 @@ class _ModulesPageState extends State<ModulesPage>
           children: [
             _installedTab(),
             _catalogTab(bundled: false),
+            _baibaoTab(),
             _catalogTab(bundled: true),
             _manualTab(),
           ],
@@ -549,7 +624,8 @@ class _ModulesPageState extends State<ModulesPage>
   Widget _content() => switch (_tabs.index) {
     0 => _installedTab(),
     1 => _catalogTab(bundled: false),
-    2 => _catalogTab(bundled: true),
+    2 => _baibaoTab(),
+    3 => _catalogTab(bundled: true),
     _ => _manualTab(),
   };
 

@@ -11,7 +11,7 @@ ENVIRONMENT_DEFINES = ['PROJECT_URL', 'TELEGRAM_GROUP_URL', 'TELEGRAM_CHANNEL_UR
 
 class AppBuild:
     slug = 'guoapp'
-    display_name = '小果影视'
+    display_name = '星星夜剧'
 
     @property
     def bundle_identifier(self):

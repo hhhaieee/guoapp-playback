@@ -25,6 +25,11 @@ var (
 		"https://raw.githubusercontent.com/guoapp-modules/index/main/index.json",
 		"https://cdn.jsdelivr.net/gh/guoapp-modules/index@main/index.json",
 	}
+	// 「百宝袋」在线仓库：用户自建 GitHub 仓库，插件只保留每个 id 的最新版本。
+	baibaoIndexAddresses = []string{
+		"https://raw.githubusercontent.com/hhhaieee/baobaodai/main/index.json",
+		"https://cdn.jsdelivr.net/gh/hhhaieee/baobaodai@main/index.json",
+	}
 	moduleFileAddresses = []string{
 		"https://raw.githubusercontent.com/%s/%s/%s",
 		"https://cdn.jsdelivr.net/gh/%s@%s/%s",
@@ -102,7 +107,7 @@ func (engine *nativeEngine) moduleStore(ctx context.Context) (map[string]any, er
 	return result, nil
 }
 
-func (engine *nativeEngine) indexedModulePackage(ctx context.Context, id string, bundled bool) ([]byte, error) {
+func (engine *nativeEngine) indexedModulePackage(ctx context.Context, id string, bundled, baibao bool) ([]byte, error) {
 	if bundled {
 		modules, _ := readBundledModules()
 		if modules[id].raw == nil {
@@ -111,6 +116,9 @@ func (engine *nativeEngine) indexedModulePackage(ctx context.Context, id string,
 		return zipModuleFiles(modules[id].raw, modules[id].code)
 	}
 	entries, mirror, err := engine.moduleIndex(ctx)
+	if baibao {
+		entries, mirror, err = engine.baibaoIndex(ctx)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -118,17 +126,44 @@ func (engine *nativeEngine) indexedModulePackage(ctx context.Context, id string,
 		if entry.ID != id {
 			continue
 		}
-		manifest, err := engine.fetchIndexedFile(ctx, entry, mirror, moduleManifest, moduleManifestBytes)
-		if err != nil {
-			return nil, err
-		}
-		code, err := engine.fetchIndexedFile(ctx, entry, mirror, moduleEntry, moduleEntryBytes)
-		if err != nil {
-			return nil, err
-		}
-		return zipModuleFiles(manifest, code)
+		return engine.packageForEntry(ctx, entry, mirror)
 	}
 	return nil, fmt.Errorf("模块索引里没有 %s", id)
+}
+
+func (engine *nativeEngine) packageForEntry(ctx context.Context, entry moduleIndexEntry, mirror int) ([]byte, error) {
+	manifest, err := engine.fetchIndexedFile(ctx, entry, mirror, moduleManifest, moduleManifestBytes)
+	if err != nil {
+		return nil, err
+	}
+	code, err := engine.fetchIndexedFile(ctx, entry, mirror, moduleEntry, moduleEntryBytes)
+	if err != nil {
+		return nil, err
+	}
+	return zipModuleFiles(manifest, code)
+}
+
+func (engine *nativeEngine) baibaoIndex(ctx context.Context) ([]moduleIndexEntry, int, error) {
+	var failures []string
+	for mirror, address := range baibaoIndexAddresses {
+		raw, err := engine.fetchModuleResource(ctx, address, moduleIndexBytes)
+		if err == nil {
+			var entries []moduleIndexEntry
+			if entries, err = parseModuleIndex(raw); err == nil {
+				return entries, mirror, nil
+			}
+		}
+		failures = append(failures, err.Error())
+	}
+	return nil, 0, fmt.Errorf("读取百宝袋仓库失败：%s", strings.Join(failures, "；"))
+}
+
+func (engine *nativeEngine) baibaoStore(ctx context.Context) (map[string]any, error) {
+	entries, _, err := engine.baibaoIndex(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"items": entries}, nil
 }
 
 func (engine *nativeEngine) fetchIndexedFile(ctx context.Context, entry moduleIndexEntry, mirror int, name string, limit int) ([]byte, error) {

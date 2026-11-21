@@ -248,7 +248,7 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
         ? _systemColor
         : null;
     final seed =
-        systemColor ?? Color((store?.themeColor ?? ThemeColor.orange).seed);
+        systemColor ?? Color((store?.themeColor ?? ThemeColor.star).seed);
     final pureBlack = store?.pureBlack ?? false;
     final slidePages = store?.slidePages ?? true;
     if ((seed, television, pureBlack, slidePages) != _themeKey) {

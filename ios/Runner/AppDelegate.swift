@@ -581,7 +581,11 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   }
 
   func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-    channel.invokeMethod("state", arguments: ["active": false])
+    // 返回全屏时把系统 PiP（独立 AVPlayer）的当前进度回传，Flutter 侧据此 seek，
+    // 避免回到全屏后播放进度仍停留在进入 PiP 之前的位置。
+    let seconds = player?.currentTime().seconds ?? 0
+    let positionMs = seconds.isFinite ? seconds * 1000 : 0
+    channel.invokeMethod("state", arguments: ["active": false, "positionMs": positionMs])
     cleanup()
   }
 
