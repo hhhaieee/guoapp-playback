@@ -67,7 +67,47 @@
 
 > 同名 tag/Release 已存在会导致 CI 失败——发布前先确认版本号未被用过。
 
-## 7. 必须遵守的约定
+## 7. 百宝袋插件上架/维护
+
+「百宝袋」是 App 内「模块 › 百宝袋」联动 GitHub 仓库 `hhhaieee/baobaodai` 的在线插件源：任何版本 IPA 都能远程拉取安装，插件更新无需发版。
+
+**上架一个新插件（4 步）：**
+
+1. 把插件打成两个文件 `manifest.json` + `main.js`，放到任意 GitHub 仓库的某个 tag（如 `v1.0.0`）下。
+2. 计算两个文件的 SHA-256：`sha256sum manifest.json main.js`。
+3. 在 `baobaodai/index.json` 的 `modules` 数组追加一条记录（格式见下）。
+4. 提交推送；App 内「模块 › 百宝袋」刷新即可安装。
+
+**index.json 记录格式：**
+
+```json
+{
+  "id": "example",
+  "name": "示例插件",
+  "version": "1.0.0",
+  "description": "插件说明",
+  "api": 1,
+  "adult": false,
+  "repo": "owner/repo",
+  "tag": "v1.0.0",
+  "sha256": {
+    "manifest.json": "<64位SHA-256>",
+    "main.js": "<64位SHA-256>"
+  }
+}
+```
+
+**规则：**
+
+- `id`：小写字母/数字/`-`/`_`，以字母或数字开头，最长 32 位，须与插件目录同名。
+- `version`：三段式 `x.y.z`；`tag` 为 `v` + 三段式版本号。
+- `repo`：只写 `owner/repo`，不含 `https://github.com/` 前缀。
+- `sha256`：App 下载后据此校验完整性。
+- **同一个 `id` 只展示最新版本**：发新版时直接追加一条更高 `version` 的记录，旧记录无需删除（客户端按版本取最高）。
+
+> index.json 只是「目录」，插件文件本体放在各自仓库的 tag 下，不要塞进 baobaodai 仓库。
+
+## 8. 必须遵守的约定
 
 - 访问任何站点前先看 `CLAUDE.md` 的「站源」硬性规定：**只允许直接访问 红果/韩小圈/鬼片/青空**，其余站点不得直接访问、不得跑会输出站点内容的测试。
 - 不新增解释性代码注释（必要的编译/工具指令除外）；清晰命名 + 模块边界即可。
@@ -75,7 +115,7 @@
 - 合并外部 PR 用 `git merge --no-ff` 原样合入，不 squash / cherry-pick / amend。
 - 本地数据存储须兼容旧版；新增设置存为快照外的独立键。
 
-## 8. 高频踩坑记录
+## 9. 高频踩坑记录
 
 - **Dart 3 严格类型**：`const {}` 必须写 `const <String, String>{}`，否则 iOS 构建失败。
 - **iOS 音量键私有通知**：需先 `beginReceivingRemoteControlEvents()` 才能稳定接收（尤其音量边界按键）。
@@ -83,7 +123,7 @@
 - **品牌名**：App 名统一「星星夜剧」，英文名 GuoApp，构建标识/安装包前缀 `guoapp`；改品牌涉及 iOS/Android/macOS/Windows/脚本多处。
 - **版本号分隔符**：`+` 在 tag 中转 `-`，在 URL 中转 `%2B`。
 
-## 9. 常用命令
+## 10. 常用命令
 
 ```sh
 # 编译 Go 核心（flutter run 前必做）
@@ -99,11 +139,11 @@ python3 scripts/build_ios.py        # iOS 未签名 IPA
 python3 scripts/build_android.py    # Android APK
 ```
 
-## 10. 相关仓库
+## 11. 相关仓库
 
 | 仓库 | 用途 |
 | --- | --- |
 | `hhhaieee/guoapp-playback` | 应用主仓库 |
-| `hhhaieee/baobaodai` | 「百宝袋」在线插件仓库（`index.json` 登记插件，同 id 只显示最新版） |
+| `hhhaieee/baobaodai` | 「百宝袋」在线插件仓库（`index.json` 登记插件，上架/维护流程见第 7 节） |
 | `guoapp-modules/hongguo` | 红果站源（CI 检出后内置） |
 | `guoapp-modules/index` | 模块商店索引 |
