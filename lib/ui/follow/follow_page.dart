@@ -10,7 +10,6 @@ import '../../source_modules.dart';
 import '../app_scope.dart';
 import '../player/playback_launcher.dart';
 import '../settings/settings_rows.dart';
-import '../shell/app_shell.dart';
 import '../widgets/drama_grid.dart';
 import '../widgets/drama_tile.dart';
 import '../widgets/focus_ring.dart';

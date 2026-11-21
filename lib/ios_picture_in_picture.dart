@@ -81,8 +81,8 @@ class IosPictureInPicture extends ChangeNotifier {
       _channel.invokeMethod<void>('update', {
         'playing': playing,
         'rate': rate,
-        if (positionMs != null) 'seek': true,
-        if (positionMs != null) 'positionMs': positionMs,
+        'seek': positionMs != null,
+        'positionMs': positionMs,
       }).catchError((Object _) {}),
     );
   }

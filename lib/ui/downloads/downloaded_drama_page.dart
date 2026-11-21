@@ -18,7 +18,6 @@ import '../app_scope.dart';
 import '../player/playback_launcher.dart';
 import '../player/playback_handle.dart';
 import '../player/playback_page.dart';
-import '../shell/app_shell.dart';
 import '../theme/motion.dart';
 import '../widgets/cover_image.dart';
 import '../widgets/focus_ring.dart';

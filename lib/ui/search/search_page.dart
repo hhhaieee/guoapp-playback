@@ -10,7 +10,6 @@ import '../../models.dart';
 import '../../source_catalog.dart';
 import '../app_scope.dart';
 import '../player/playback_launcher.dart';
-import '../shell/app_shell.dart';
 import '../theme/motion.dart';
 import '../widgets/drama_grid.dart';
 import '../widgets/follow_button.dart';

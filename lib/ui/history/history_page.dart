@@ -9,7 +9,6 @@ import '../../watch_history.dart';
 import '../app_scope.dart';
 import '../player/playback_launcher.dart';
 import '../settings/settings_rows.dart';
-import '../shell/app_shell.dart';
 import '../theme/motion.dart';
 import '../widgets/drama_grid.dart';
 import '../widgets/drama_tile.dart';
