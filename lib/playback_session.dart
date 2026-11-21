@@ -1550,10 +1550,9 @@ class PlaybackSession extends ChangeNotifier {
     } else {
       _holdNetworkSpeed();
       if (_pendingError) _queueRecovery('foreground_pending_error');
-      // 锁屏/进入后台导致的音频中断结束后，libmpv 可能自行恢复播放；
-      // 回到前台时若仍是「暂停」意图，强制纠正，避免暂停后锁屏误播。
-      if (!_playIntent && player.state.playing) {
-        unawaited(player.pause());
+      // 暂停后锁屏/切后台，回到前台时恢复播放（横竖屏一致）。
+      if (!_playIntent && !player.state.playing) {
+        togglePlayback();
       }
     }
   }

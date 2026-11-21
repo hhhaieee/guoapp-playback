@@ -817,7 +817,7 @@ class _PhoneDock extends StatelessWidget {
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, 8, 16, bottomInset + 8),
+      padding: EdgeInsets.fromLTRB(16, 4, 16, bottomInset + 4),
       child: Row(
         children: [
           Expanded(

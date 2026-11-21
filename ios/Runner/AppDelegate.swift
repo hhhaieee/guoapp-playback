@@ -177,9 +177,7 @@ final class MediaControls {
             let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
       if type == .began {
         self.resumeAfterInterruption = self.playing
-        // 中断开始时无条件通知暂停：既防止 libmpv 在中断恢复后自动续播，
-        // 也覆盖「用户主动暂停后锁屏」的场景。
-        self.send("pause")
+        if self.playing { self.send("pause") }
         return
       }
       let options = AVAudioSession.InterruptionOptions(
@@ -609,6 +607,10 @@ final class VolumeKeyWatcher: NSObject {
     channel = FlutterMethodChannel(name: "duanju/volume", binaryMessenger: messenger)
     super.init()
     lastVolume = AVAudioSession.sharedInstance().outputVolume
+    // 关键：监听 AVSystemController_SystemVolumeDidChangeNotification 私有通知前，
+    // 必须先开启远程控制事件接收，否则该通知在部分设备/系统上收不到或飘忽不定，
+    // 导致「音量到最大/最小后继续按同一方向」不再弹出音量提示图标。
+    UIApplication.shared.beginReceivingRemoteControlEvents()
     // 物理音量键：AVSystemController 私有通知在每次按键时都会触发，即使音量已到
     // 最大/最小值、数值不变；这样在边界继续按音量键也能弹出音量提示图标。
     volumeToken = NotificationCenter.default.addObserver(

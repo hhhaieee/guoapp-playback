@@ -83,6 +83,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
   _Panel? _panel;
   int _sidePanelMount = 0;
   bool _sidePanelShown = false;
+  int _segment = 0;
   DateTime _now = DateTime.now();
   ({int level, bool charging})? _battery;
 
@@ -375,6 +376,11 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
 
   void _openPanel(_Panel panel) {
     _hideTimer?.cancel();
+    if (panel == _Panel.episodes) {
+      _segment = 0;
+      _selecting = false;
+      _selected.clear();
+    }
     setState(() => _panel = panel);
   }
 
@@ -386,6 +392,7 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
   void _select(bool selecting) => setState(() {
     _selecting = selecting;
     _selected.clear();
+    _segment = 0;
   });
 
   void _saveFailed() {
@@ -1232,67 +1239,229 @@ class _LandscapePlayerPageState extends State<LandscapePlayerPage>
     ),
   );
 
+  static const _episodeSegmentSize = 30;
+
   Widget _panelBody(BuildContext context, _Panel panel) {
     final colors = Theme.of(context).colorScheme;
     final right = MediaQuery.viewPaddingOf(context).right;
-    final session = _session;
     final episodes = panel == _Panel.episodes;
     return Material(
       color: colors.surfaceContainerLow.withValues(alpha: .94),
       child: Padding(
         padding: EdgeInsets.only(right: right, top: 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: episodes
+            ? _episodesPanel(context, colors)
+            : _settingsPanel(context),
+      ),
+    );
+  }
+
+  Widget _settingsPanel(BuildContext context) {
+    final session = _session;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SheetHeader(
           children: [
-            SheetHeader(
-              children: [
-                Text(episodes ? '选集' : '播放设置', style: sheetTitle),
-                Expanded(
-                  child: Text(
-                    episodes ? '共 ${session.detail.episodes.length} 集' : '',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: colors.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  onPressed: _closePanel,
-                  icon: const Icon(Icons.close_rounded),
-                  tooltip: '关闭',
-                ),
-              ],
-            ),
-            Expanded(
-              child: episodes
-                  ? EpisodeGrid(
-                      episodes: session.detail.episodes,
-                      current: session.index,
-                      selecting: false,
-                      selected: const {},
-                      touch: true,
-                      onSelectionChanged: () {},
-                      onPick: (index) {
-                        _closePanel();
-                        if (index != session.index) {
-                          unawaited(session.play(index));
-                        }
-                      },
-                    )
-                  : PlaybackSettingsList(
-                      session: session,
-                      onFailure: _saveFailed,
-                      onCast: () {
-                        _closePanel();
-                        unawaited(startCast(context, session));
-                      },
-                    ),
+            const Text('播放设置', style: sheetTitle),
+            const Expanded(child: SizedBox.shrink()),
+            IconButton(
+              onPressed: _closePanel,
+              icon: const Icon(Icons.close_rounded),
+              tooltip: '关闭',
             ),
           ],
         ),
+        Expanded(
+          child: PlaybackSettingsList(
+            session: session,
+            onFailure: _saveFailed,
+            onCast: () {
+              _closePanel();
+              unawaited(startCast(context, session));
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _episodesPanel(BuildContext context, ColorScheme colors) {
+    final session = _session;
+    final allEpisodes = session.detail.episodes;
+    final seasons = session.detail.seasons;
+    final segmentCount = math.max(
+      1,
+      (allEpisodes.length / _episodeSegmentSize).ceil(),
+    );
+    final seg = _segment.clamp(0, segmentCount - 1);
+    final segmentStart = seg * _episodeSegmentSize;
+    final segmentEnd = math.min(
+      segmentStart + _episodeSegmentSize,
+      allEpisodes.length,
+    );
+    final visibleEpisodes = _selecting
+        ? allEpisodes
+        : allEpisodes.sublist(segmentStart, segmentEnd);
+    final offset = _selecting ? 0 : segmentStart;
+    final current =
+        session.index >= offset && session.index < offset + visibleEpisodes.length
+        ? session.index - offset
+        : -1;
+    final all = _selected.length == allEpisodes.length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SheetHeader(
+          children: _selecting
+              ? [
+                  Expanded(
+                    child: Text('已选 ${_selected.length} 集', style: sheetTitle),
+                  ),
+                  TextButton(
+                    onPressed: () => _select(false),
+                    child: const Text('取消'),
+                  ),
+                  TextButton(
+                    onPressed: () => setState(() {
+                      all
+                          ? _selected.clear()
+                          : _selected.addAll(
+                              List.generate(allEpisodes.length, (i) => i),
+                            );
+                    }),
+                    child: Text(all ? '取消全选' : '全选'),
+                  ),
+                  FilledButton(
+                    onPressed: _selected.isEmpty
+                        ? null
+                        : () {
+                            _download();
+                            _closePanel();
+                          },
+                    child: const Text('下载'),
+                  ),
+                ]
+              : [
+                  const Text('选集', style: sheetTitle),
+                  Expanded(
+                    child: Text(
+                      '共 ${allEpisodes.length} 集',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  if (_canDownload)
+                    IconButton(
+                      onPressed: () => _select(true),
+                      icon: const Icon(Icons.download_rounded),
+                      tooltip: '下载选集',
+                    ),
+                  IconButton(
+                    onPressed: _closePanel,
+                    icon: const Icon(Icons.close_rounded),
+                    tooltip: '关闭',
+                  ),
+                ],
+        ),
+        Expanded(
+          child: EpisodeGrid(
+            header: !_selecting
+                ? _episodesLayerHeader(seasons, allEpisodes)
+                : null,
+            episodes: visibleEpisodes,
+            current: current,
+            selecting: _selecting,
+            selected: _selected,
+            touch: true,
+            onSelectionChanged: () => setState(() {}),
+            onPick: (index) {
+              _closePanel();
+              final real = offset + index;
+              if (real != session.index) {
+                unawaited(session.play(real));
+              }
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 集数网格上方两层标签：第一层季切换，第二层每 30 集一段。
+  Widget? _episodesLayerHeader(
+    List<DramaSeason> seasons,
+    List<Episode> allEpisodes,
+  ) {
+    final hasSeasons = seasons.isNotEmpty;
+    final segments = (allEpisodes.length / _episodeSegmentSize).ceil();
+    if (!hasSeasons && segments <= 1) return null;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (hasSeasons)
+            _layerChipRow([
+              for (final season in seasons)
+                _layerChip(
+                  label: season.label,
+                  selected: season.drama.id == _session.detail.drama.id,
+                  onTap: () {
+                    if (_segment != 0) _segment = 0;
+                    unawaited(_playSeason(season));
+                  },
+                ),
+            ]),
+          if (segments > 1) ...[
+            const SizedBox(height: 6),
+            _layerChipRow([
+              for (var i = 0; i < segments; i++)
+                _layerChip(
+                  label: _segmentLabel(i, allEpisodes.length),
+                  selected: i == _segment.clamp(0, segments - 1),
+                  onTap: () => setState(() => _segment = i),
+                ),
+            ]),
+          ],
+        ],
       ),
+    );
+  }
+
+  String _segmentLabel(int index, int total) {
+    final start = index * _episodeSegmentSize + 1;
+    final end = math.min((index + 1) * _episodeSegmentSize, total);
+    return '$start-$end';
+  }
+
+  Widget _layerChipRow(List<Widget> chips) => SingleChildScrollView(
+    scrollDirection: Axis.horizontal,
+    child: Row(spacing: 8, children: chips),
+  );
+
+  Widget _layerChip({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      showCheckmark: false,
+      visualDensity: VisualDensity.compact,
+      selectedColor: colors.secondaryContainer,
+      labelStyle: TextStyle(
+        fontSize: 13,
+        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+        color: selected ? colors.onSecondaryContainer : colors.onSurfaceVariant,
+      ),
+      onSelected: (_) => onTap(),
     );
   }
 
