@@ -339,6 +339,7 @@ class _AppShellState extends State<AppShell> {
       store: widget.store,
       entryFocus: _followEntry,
       onExitUp: _tabFocus[AppTab.find.index].requestFocus,
+      adultOnly: false,
     ),
     AppTab.follow => FollowPage(
       store: widget.store,

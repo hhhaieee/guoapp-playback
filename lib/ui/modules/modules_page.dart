@@ -838,7 +838,7 @@ class _ModuleCard extends StatelessWidget {
       height: 1.35,
     );
     final footer = leading.isNotEmpty || actions.isNotEmpty;
-    final bottom = footer ? 10.0 : 14.0;
+    final bottom = footer ? 8.0 : 10.0;
     final details = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -846,10 +846,10 @@ class _ModuleCard extends StatelessWidget {
           style: theme.textTheme.titleMedium?.copyWith(fontSize: 18),
           child: _ModuleTitle(name, adult: adult),
         ),
-        const SizedBox(height: 2),
+        const SizedBox(height: 1),
         Text('版本：${version.isEmpty ? '未标注' : version}', style: meta),
         Text('标识：$id', style: meta),
-        if (body.isNotEmpty) ...[const SizedBox(height: 6), ...body],
+        if (body.isNotEmpty) ...[const SizedBox(height: 4), ...body],
       ],
     );
     final header = television
@@ -865,7 +865,7 @@ class _ModuleCard extends StatelessWidget {
             ],
           )
         : Padding(
-            padding: EdgeInsets.fromLTRB(18, 14, 12, bottom),
+            padding: EdgeInsets.fromLTRB(18, 10, 12, bottom),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -908,7 +908,7 @@ class _ModuleCard extends StatelessWidget {
                     ),
                   ),
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+                    padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
                     child: Row(
                       spacing: 8,
                       children: [...leading, const Spacer(), ...actions],
@@ -925,7 +925,7 @@ class _ModuleCard extends StatelessWidget {
 
   Widget _televisionDetails(Widget details, double bottom) {
     final padded = Padding(
-      padding: EdgeInsets.fromLTRB(18, 14, 12, bottom),
+      padding: EdgeInsets.fromLTRB(18, 10, 12, bottom),
       child: details,
     );
     final tap = onTap;

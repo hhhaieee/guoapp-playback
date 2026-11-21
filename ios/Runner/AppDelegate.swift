@@ -261,6 +261,8 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   private var timeObserver: Any?
   private var lastRate = 1.0
   private var kvoToken: NSKeyValueObservation?
+  private var pendingSeek: CMTime?
+  private var startAttempt = 0
 
   init(messenger: FlutterBinaryMessenger) {
     channel = FlutterMethodChannel(name: "duanju/pip", binaryMessenger: messenger)
@@ -298,6 +300,7 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
       channel.invokeMethod("state", arguments: ["active": false, "error": "当前设备不支持系统画中画"])
       return
     }
+    cleanup()
     prepareAudio()
 
     var options: [String: Any] = [:]
@@ -313,16 +316,18 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     layer.frame = CGRect(x: 0, y: 0, width: 2, height: 2)
     layer.videoGravity = .resizeAspect
 
-    // 需要一个在窗口层级中的承载视图，PiP 才能取到 layer。
+    // AVKit 只允许为「已上屏并完成渲染」的 layer 启动 PiP；用一个极小的
+    // 承载视图挂到 keyWindow，确保 layer 真正进入窗口层级。
     let host = UIView(frame: CGRect(x: 0, y: 0, width: 2, height: 2))
     host.backgroundColor = .clear
-    host.alpha = 0.01
+    host.alpha = 0.02
     host.isUserInteractionEnabled = false
     if let window = UIApplication.shared.connectedScenes
         .compactMap({ $0 as? UIWindowScene })
         .flatMap({ $0.windows })
         .first(where: { $0.isKeyWindow }) {
       window.addSubview(host)
+      window.bringSubviewToFront(host)
       host.layer.addSublayer(layer)
       self.pipHost = host
     }
@@ -338,45 +343,64 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
       self.pipController = controller
     } else {
       channel.invokeMethod("state", arguments: ["active": false, "error": "无法创建画中画控制器"])
+      cleanup()
       return
     }
 
     let position = (args["positionMs"] as? NSNumber)?.doubleValue ?? 0
     let rate = (args["rate"] as? NSNumber)?.doubleValue ?? 1
     self.lastRate = rate > 0 ? rate : 1
-    let time = CMTime(value: Int64(position), timescale: 1000)
-    // startPictureInPicture 必须在主线程调用；seek/KVO 回调可能落在后台队列。
-    item.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-      DispatchQueue.main.async {
-        guard let self else { return }
-        newPlayer.rate = Float(self.lastRate)
-        self.tryStartPictureInPicture()
+    self.pendingSeek = CMTime(value: Int64(position), timescale: 1000)
+
+    // 等 AVPlayerItem 真正就绪后再 seek + 启动，避免在未就绪时触发 -1001。
+    if item.status == .readyToPlay {
+      seekAndStart(item, newPlayer)
+    } else {
+      kvoToken = item.observe(\.status, options: [.new]) { [weak self] observed, _ in
+        DispatchQueue.main.async {
+          guard let self else { return }
+          switch observed.status {
+          case .readyToPlay:
+            self.kvoToken = nil
+            self.seekAndStart(item, newPlayer)
+          case .failed:
+            self.kvoToken = nil
+            let message = observed.error?.localizedDescription ?? "视频加载失败，无法进入画中画"
+            self.channel.invokeMethod("state", arguments: ["active": false, "error": message])
+            self.cleanup()
+          default:
+            break
+          }
+        }
       }
     }
   }
 
-  /// 在主线程尝试启动画中画；AVPlayer 尚未就绪时监听 status，就绪后再试。
-  private func tryStartPictureInPicture() {
-    guard let controller = pipController else { return }
-    if controller.isPictureInPicturePossible {
-      controller.startPictureInPicture()
-      return
-    }
-    guard kvoToken == nil, let item = playerItem else { return }
-    kvoToken = item.observe(\.status, options: [.new]) { [weak self] observed, _ in
+  private func seekAndStart(_ item: AVPlayerItem, _ newPlayer: AVPlayer) {
+    let time = pendingSeek ?? .zero
+    pendingSeek = nil
+    item.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
       DispatchQueue.main.async {
         guard let self else { return }
-        self.kvoToken = nil
-        switch observed.status {
-        case .readyToPlay:
-          self.tryStartPictureInPicture()
-        case .failed:
-          let message = observed.error?.localizedDescription ?? "视频加载失败，无法进入画中画"
-          self.channel.invokeMethod("state", arguments: ["active": false, "error": message])
-          self.cleanup()
-        default:
-          break
-        }
+        newPlayer.rate = Float(self.lastRate)
+        self.startPictureInPicture()
+      }
+    }
+  }
+
+  /// 阶梯重试启动 PiP：startPictureInPicture 是异步的，且 AVKit 要求 layer
+  /// 先完成一次渲染；在短间隔内反复尝试直到窗口真正弹出，规避 -1001「操作无法完成」。
+  private func startPictureInPicture() {
+    guard let controller = pipController, !controller.isPictureInPictureActive else { return }
+    controller.startPictureInPicture()
+    let delays: [Double] = [0.35, 0.6, 0.9, 1.2]
+    guard startAttempt < delays.count else { return }
+    let delay = delays[startAttempt]
+    startAttempt += 1
+    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+      guard let self else { return }
+      if self.pipController?.isPictureInPictureActive != true {
+        self.startPictureInPicture()
       }
     }
   }
@@ -407,6 +431,8 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     if let timeObserver { player?.removeTimeObserver(timeObserver) }
     timeObserver = nil
     kvoToken = nil
+    pendingSeek = nil
+    startAttempt = 0
     player?.pause()
     pipController?.delegate = nil
     pipController = nil

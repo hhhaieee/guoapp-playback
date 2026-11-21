@@ -25,6 +25,7 @@ import '../widgets/group_card.dart';
 import 'appearance_settings.dart';
 import 'backup_actions.dart';
 import 'boss_key_tile.dart';
+import 'diary_view.dart';
 import 'settings_rows.dart';
 import 'source_diagnosis_view.dart';
 import 'storage_view.dart';
@@ -684,6 +685,12 @@ class SettingsSection extends StatelessWidget {
             '数据源诊断',
             (_) => SourceDiagnosisView(store: store, open: open),
           ),
+        ),
+        SettingsTile(
+          title: '播放调试日记',
+          subtitle: '查看并复制本机运行与播放事件日志（不联网）',
+          icon: Icons.receipt_long_outlined,
+          onTap: () => open('播放调试日记', (_) => const DiaryView()),
         ),
       ],
     ),

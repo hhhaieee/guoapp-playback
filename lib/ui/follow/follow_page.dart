@@ -32,10 +32,14 @@ class FollowPage extends StatefulWidget {
     required this.store,
     required this.entryFocus,
     required this.onExitUp,
+    this.adultOnly,
   });
   final LocalStore store;
   final FocusNode entryFocus;
   final VoidCallback onExitUp;
+
+  /// 是否仅显示 18+ 片源：null 不过滤，true 仅 18+，false 仅非 18+。
+  final bool? adultOnly;
 
   @override
   State<FollowPage> createState() => _FollowPageState();
@@ -132,7 +136,12 @@ class _FollowPageState extends State<FollowPage> {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: Listenable.merge([widget.store, _query]),
     builder: (context, _) {
-      final follows = widget.store.favorites;
+      final follows = [
+        for (final drama in widget.store.favorites)
+          if (widget.adultOnly == null ||
+              SourceSite.isAdult(drama.source) == widget.adultOnly)
+            drama,
+      ];
       final sources = followedSources(follows);
       final source = sources.any((site) => site.id == _source) ? _source : '';
       final shown = [
@@ -174,7 +183,10 @@ class _FollowPageState extends State<FollowPage> {
     letterKeyboard: widget.store.televisionKeyboard,
     matches: (query) async => {
       for (final drama in widget.store.favorites)
-        if (matchesFollowTitle(drama, query)) drama.title,
+        if ((widget.adultOnly == null ||
+                SourceSite.isAdult(drama.source) == widget.adultOnly) &&
+            matchesFollowTitle(drama, query))
+          drama.title,
     }.toList(),
   );
 

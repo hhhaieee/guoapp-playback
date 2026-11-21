@@ -27,9 +27,17 @@ typedef _View = ({
 });
 
 class HistoryPage extends StatefulWidget {
-  const HistoryPage({super.key, required this.store, this.root = false});
+  const HistoryPage({
+    super.key,
+    required this.store,
+    this.root = false,
+    this.adultOnly,
+  });
   final LocalStore store;
   final bool root;
+
+  /// 是否仅显示 18+ 片源：null 不过滤，true 仅 18+，false 仅非 18+。
+  final bool? adultOnly;
 
   @override
   State<HistoryPage> createState() => _HistoryPageState();
@@ -132,7 +140,12 @@ class _HistoryPageState extends State<HistoryPage> {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: Listenable.merge([widget.store, _query]),
     builder: (context, _) {
-      final history = widget.store.history;
+      final history = [
+        for (final entry in widget.store.history)
+          if (widget.adultOnly == null ||
+              SourceSite.isAdult(entry.drama.source) == widget.adultOnly)
+            entry,
+      ];
       final sources = watchedSources(history);
       final source = sources.any((site) => site.id == _source) ? _source : '';
       final shown = [
@@ -177,7 +190,10 @@ class _HistoryPageState extends State<HistoryPage> {
     letterKeyboard: widget.store.televisionKeyboard,
     matches: (query) async => {
       for (final entry in widget.store.history)
-        if (matchesWatchTitle(entry, query)) entry.drama.title,
+        if ((widget.adultOnly == null ||
+                SourceSite.isAdult(entry.drama.source) == widget.adultOnly) &&
+            matchesWatchTitle(entry, query))
+          entry.drama.title,
     }.toList(),
   );
 

@@ -438,7 +438,7 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
   Future<void> _openEpisodes() => _sheet(
     (_) => EpisodeSheet(
       session: _session,
-      onSeasons: () => unawaited(_openSeasons()),
+      onSeason: (season) => unawaited(_playSeason(season)),
       canDownload:
           AppScope.of(context).repository.supportsDownloads &&
           widget.store.canDownload,
@@ -449,21 +449,6 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
       ),
     ),
   );
-
-  Future<void> _openSeasons() async {
-    DramaSeason? picked;
-    await _sheet(
-      fitContent: true,
-      (_) =>
-          SeasonSheet(session: _session, onSeason: (season) => picked = season),
-    );
-    if (!mounted) return;
-    if (picked case final season?) {
-      await _playSeason(season);
-    } else {
-      await _openEpisodes();
-    }
-  }
 
   Future<void> _playSeason(DramaSeason season) async {
     if (_session.switchingSeason) return;
@@ -1148,12 +1133,12 @@ class EpisodeSheet extends StatefulWidget {
   const EpisodeSheet({
     super.key,
     required this.session,
-    required this.onSeasons,
+    required this.onSeason,
     required this.canDownload,
     required this.onDownload,
   });
   final PlaybackSession session;
-  final VoidCallback onSeasons;
+  final ValueChanged<DramaSeason> onSeason;
   final bool canDownload;
   final ValueChanged<List<int>> onDownload;
 
@@ -1162,155 +1147,208 @@ class EpisodeSheet extends StatefulWidget {
 }
 
 class _EpisodeSheetState extends State<EpisodeSheet> {
+  static const _segmentSize = 30;
   final _selected = <int>{};
   bool _selecting = false;
+  int _segment = 0;
 
   PlaybackSession get _session => widget.session;
 
   void _select(bool selecting) => setState(() {
     _selecting = selecting;
     _selected.clear();
+    _segment = 0;
   });
 
   @override
-  Widget build(BuildContext context) {
-    final episodes = _session.detail.episodes;
-    final all = _selected.length == episodes.length;
-    return PopScope(
-      canPop: !_selecting,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _select(false);
-      },
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SheetHeader(
-            children: _selecting
-                ? [
-                    Expanded(
-                      child: Text(
-                        '已选 ${_selected.length} 集',
-                        style: sheetTitle,
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_selecting,
+    onPopInvokedWithResult: (didPop, _) {
+      if (!didPop) _select(false);
+    },
+    child: ListenableBuilder(
+      listenable: _session,
+      builder: (context, _) {
+        final allEpisodes = _session.detail.episodes;
+        final seasons = _session.detail.seasons;
+        final segmentCount = math.max(
+          1,
+          (allEpisodes.length / _segmentSize).ceil(),
+        );
+        final seg = _segment.clamp(0, segmentCount - 1);
+        final segmentStart = seg * _segmentSize;
+        final segmentEnd = math.min(
+          segmentStart + _segmentSize,
+          allEpisodes.length,
+        );
+        final episodes = _selecting
+            ? allEpisodes
+            : allEpisodes.sublist(segmentStart, segmentEnd);
+        final offset = _selecting ? 0 : segmentStart;
+        final current =
+            _session.index >= offset && _session.index < offset + episodes.length
+            ? _session.index - offset
+            : -1;
+        final all = _selected.length == allEpisodes.length;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SheetHeader(
+              children: _selecting
+                  ? [
+                      Expanded(
+                        child: Text(
+                          '已选 ${_selected.length} 集',
+                          style: sheetTitle,
+                        ),
                       ),
-                    ),
-                    TextButton(
-                      onPressed: () => _select(false),
-                      child: const Text('取消'),
-                    ),
-                    TextButton(
-                      onPressed: () => setState(() {
-                        all
-                            ? _selected.clear()
-                            : _selected.addAll(
-                                List.generate(episodes.length, (i) => i),
-                              );
-                      }),
-                      child: Text(all ? '取消全选' : '全选'),
-                    ),
-                    FilledButton(
-                      onPressed: _selected.isEmpty
-                          ? null
-                          : () {
-                              final indexes = _selected.toList()..sort();
-                              Navigator.pop(context);
-                              widget.onDownload(indexes);
-                            },
-                      child: const Text('下载'),
-                    ),
-                  ]
-                : [
-                    const Expanded(child: Text('选集', style: sheetTitle)),
-                    if (widget.canDownload)
+                      TextButton(
+                        onPressed: () => _select(false),
+                        child: const Text('取消'),
+                      ),
+                      TextButton(
+                        onPressed: () => setState(() {
+                          all
+                              ? _selected.clear()
+                              : _selected.addAll(
+                                  List.generate(allEpisodes.length, (i) => i),
+                                );
+                        }),
+                        child: Text(all ? '取消全选' : '全选'),
+                      ),
+                      FilledButton(
+                        onPressed: _selected.isEmpty
+                            ? null
+                            : () {
+                                final indexes = _selected.toList()..sort();
+                                Navigator.pop(context);
+                                widget.onDownload(indexes);
+                              },
+                        child: const Text('下载'),
+                      ),
+                    ]
+                  : [
+                      const Expanded(child: Text('选集', style: sheetTitle)),
+                      if (widget.canDownload)
+                        IconButton(
+                          onPressed: () => _select(true),
+                          icon: const Icon(Icons.download_rounded),
+                          tooltip: '下载选集',
+                        ),
                       IconButton(
-                        onPressed: () => _select(true),
-                        icon: const Icon(Icons.download_rounded),
-                        tooltip: '下载选集',
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close_rounded),
+                        tooltip: '关闭',
                       ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close_rounded),
-                      tooltip: '关闭',
-                    ),
-                  ],
-          ),
-          Expanded(
-            child: ListenableBuilder(
-              listenable: _session,
-              builder: (context, _) => EpisodeGrid(
-                header: !_selecting && _session.detail.seasons.isNotEmpty
-                    ? _seasonBar(context)
+                    ],
+            ),
+            Expanded(
+              child: EpisodeGrid(
+                header: !_selecting
+                    ? _layerHeader(context, seasons, allEpisodes)
                     : null,
                 episodes: episodes,
-                current: _session.index,
+                current: current,
                 selecting: _selecting,
                 selected: _selected,
                 touch: true,
                 onSelectionChanged: () => setState(() {}),
                 onPick: (index) {
                   Navigator.pop(context);
-                  if (index != _session.index) {
-                    unawaited(_session.play(index));
+                  final real = offset + index;
+                  if (real != _session.index) {
+                    unawaited(_session.play(real));
                   }
                 },
               ),
             ),
-          ),
+          ],
+        );
+      },
+    ),
+  );
+
+  /// 集数网格上方两层标签：第一层季切换，第二层每 30 集一段。
+  Widget? _layerHeader(
+    BuildContext context,
+    List<DramaSeason> seasons,
+    List<Episode> allEpisodes,
+  ) {
+    final hasSeasons = seasons.isNotEmpty;
+    final segments = (allEpisodes.length / _segmentSize).ceil();
+    if (!hasSeasons && segments <= 1) return null;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (hasSeasons)
+            _chipRow(
+              [
+                for (final season in seasons)
+                  _LayerChip(
+                    label: season.label,
+                    selected: season.drama.id == _session.detail.drama.id,
+                    onTap: () {
+                      if (_segment != 0) _segment = 0;
+                      widget.onSeason(season);
+                    },
+                  ),
+              ],
+            ),
+          if (segments > 1) ...[
+            const SizedBox(height: 6),
+            _chipRow([
+              for (var i = 0; i < segments; i++)
+                _LayerChip(
+                  label: _segmentLabel(i, allEpisodes.length),
+                  selected: i == _segment.clamp(0, segments - 1),
+                  onTap: () => setState(() => _segment = i),
+                ),
+            ]),
+          ],
         ],
       ),
     );
   }
 
-  Widget _seasonBar(BuildContext context) {
+  String _segmentLabel(int index, int total) {
+    final start = index * _segmentSize + 1;
+    final end = math.min((index + 1) * _segmentSize, total);
+    return '$start-$end';
+  }
+
+  Widget _chipRow(List<Widget> chips) => SingleChildScrollView(
+    scrollDirection: Axis.horizontal,
+    child: Row(spacing: 8, children: chips),
+  );
+}
+
+class _LayerChip extends StatelessWidget {
+  const _LayerChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final seasons = _session.detail.seasons;
-    final current = seasons
-        .where((season) => season.drama.id == _session.detail.drama.id)
-        .firstOrNull;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-      child: Material(
-        color: colors.surfaceContainerHighest.withValues(alpha: .55),
-        borderRadius: BorderRadius.circular(12),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () {
-            Navigator.pop(context);
-            widget.onSeasons();
-          },
-          child: SizedBox(
-            height: 44,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 8, 0),
-              child: Row(
-                spacing: 8,
-                children: [
-                  Icon(Icons.layers_rounded, size: 18, color: colors.primary),
-                  Text(
-                    current?.label ?? '系列多季',
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      '共 ${seasons.length} 季',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: colors.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    color: colors.onSurfaceVariant,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      showCheckmark: false,
+      visualDensity: VisualDensity.compact,
+      selectedColor: colors.secondaryContainer,
+      labelStyle: TextStyle(
+        fontSize: 13,
+        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+        color: selected ? colors.onSecondaryContainer : colors.onSurfaceVariant,
       ),
+      onSelected: (_) => onTap(),
     );
   }
 }

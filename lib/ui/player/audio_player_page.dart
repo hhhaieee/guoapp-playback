@@ -140,7 +140,7 @@ class _AudioPlayerPageState extends State<AudioPlayerPage>
     context,
     (_) => EpisodeSheet(
       session: _session,
-      onSeasons: () => unawaited(_openSeasons()),
+      onSeason: (season) => unawaited(_playSeason(season)),
       canDownload: _canDownload,
       onDownload: (indexes) => unawaited(
         downloadEpisodes(context, widget.store, _session.detail, [
@@ -150,24 +150,12 @@ class _AudioPlayerPageState extends State<AudioPlayerPage>
     ),
   );
 
-  Future<void> _openSeasons() async {
-    DramaSeason? picked;
-    await showPlayerSheet(
-      context,
-      fitContent: true,
-      (_) =>
-          SeasonSheet(session: _session, onSeason: (season) => picked = season),
-    );
-    if (!mounted) return;
-    if (picked case final season?) {
-      if (_session.switchingSeason) return;
-      if (!await _session.playSeason(season) && mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('${season.label}切换失败，请稍后重试')));
-      }
-    } else {
-      await _openEpisodes();
+  Future<void> _playSeason(DramaSeason season) async {
+    if (_session.switchingSeason) return;
+    if (!await _session.playSeason(season) && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('${season.label}切换失败，请稍后重试')));
     }
   }
 

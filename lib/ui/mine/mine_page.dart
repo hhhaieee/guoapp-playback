@@ -7,6 +7,7 @@ import '../../download_overview.dart';
 import '../../local_store.dart';
 import '../app_scope.dart';
 import '../downloads/downloads_page.dart';
+import '../find/find_page.dart';
 import '../modules/modules_page.dart';
 import '../settings/settings_page.dart';
 import '../settings/settings_sections.dart';
@@ -60,6 +61,16 @@ class MinePage extends StatelessWidget {
   void _openModules(BuildContext context) =>
       openPage<void>(context, (_) => ModulesPage(store: store));
 
+  void _openNight(BuildContext context) => openPage<void>(
+    context,
+    (_) => FindPage(
+      store: store,
+      entryFocus: entryFocus,
+      onExitUp: onExitUp,
+      adultOnly: true,
+    ),
+  );
+
   void _openGroup(BuildContext context, SettingsGroup group) =>
       openSettingsGroup(context, store, group);
 
@@ -69,18 +80,27 @@ class MinePage extends StatelessWidget {
     crossAxisAlignment: CrossAxisAlignment.stretch,
     spacing: 12,
     children: [
+      if (!store.adultLocked)
+        GroupCard(
+          children: [
+            SettingsTile(
+              icon: Icons.nightlight_round,
+              title: '夜剧',
+              subtitle: '18+ 片源的历史与追剧',
+              onTap: () => _openNight(context),
+            ),
+          ],
+        ),
       GroupCard(
         children: [
           SettingsTile(
             icon: Icons.download_rounded,
             title: '下载',
-            subtitle: '下载任务、下载设置与存储',
             onTap: () => _openDownloads(context),
           ),
           SettingsTile(
             icon: Icons.extension_outlined,
             title: '模块',
-            subtitle: '安装与管理站源，隐藏 18+ 片源',
             onTap: () => _openModules(context),
           ),
         ],

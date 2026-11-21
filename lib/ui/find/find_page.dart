@@ -11,10 +11,14 @@ class FindPage extends StatefulWidget {
     required this.store,
     required this.entryFocus,
     required this.onExitUp,
+    this.adultOnly,
   });
   final LocalStore store;
   final FocusNode entryFocus;
   final VoidCallback onExitUp;
+
+  /// 是否仅显示 18+ 片源：null 不过滤，true 仅 18+，false 仅非 18+。
+  final bool? adultOnly;
 
   @override
   State<FindPage> createState() => _FindPageState();
@@ -32,6 +36,7 @@ class _FindPageState extends State<FindPage> {
         store: widget.store,
         entryFocus: widget.entryFocus,
         onExitUp: widget.onExitUp,
+        adultOnly: widget.adultOnly,
       );
     }
     return Column(
@@ -42,9 +47,9 @@ class _FindPageState extends State<FindPage> {
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
             child: Row(
               children: [
-                _chip('追剧', 0),
+                _chip('历史', 0),
                 const SizedBox(width: 8),
-                _chip('历史', 1),
+                _chip('追剧', 1),
               ],
             ),
           ),
@@ -56,12 +61,17 @@ class _FindPageState extends State<FindPage> {
             child: IndexedStack(
               index: _index,
               children: [
+                HistoryPage(
+                  store: widget.store,
+                  root: true,
+                  adultOnly: widget.adultOnly,
+                ),
                 FollowPage(
                   store: widget.store,
                   entryFocus: widget.entryFocus,
                   onExitUp: widget.onExitUp,
+                  adultOnly: widget.adultOnly,
                 ),
-                HistoryPage(store: widget.store, root: true),
               ],
             ),
           ),

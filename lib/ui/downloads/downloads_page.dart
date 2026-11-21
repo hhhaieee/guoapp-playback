@@ -6,9 +6,11 @@ import '../../download_overview.dart';
 import '../../local_store.dart';
 import '../../merge_queue.dart';
 import '../../models.dart';
+import '../../resource_settings_editor.dart';
 import '../../source_modules.dart';
 import '../app_scope.dart';
 import '../settings/settings_page.dart';
+import '../settings/settings_sections.dart';
 import '../shell/app_shell.dart';
 import '../theme/motion.dart';
 import '../widgets/cover_image.dart';
@@ -48,16 +50,19 @@ class DownloadsPage extends StatefulWidget {
 
 class _DownloadsPageState extends State<DownloadsPage>
     with SingleTickerProviderStateMixin {
-  late final _tabs = TabController(length: 3, vsync: this)
+  late final _tabs = TabController(length: 5, vsync: this)
     ..addListener(_tabChanged);
-  final _sources = ['', '', ''];
+  final _sources = ['', '', '', '', ''];
   Set<String>? _selection;
   bool _busy = false;
   final _enteredJobs = <Object>{};
+  ResourceSettingsEditor? _editor;
 
   bool get _pendingTab => _tabs.index == 0;
   bool get _downloadedTab => _tabs.index == 1;
   bool get _mergeTab => _tabs.index == 2;
+  bool get _downloadSettingsTab => _tabs.index == 3;
+  bool get _storageTab => _tabs.index == 4;
 
   @override
   void initState() {
@@ -66,7 +71,17 @@ class _DownloadsPageState extends State<DownloadsPage>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _editor ??= ResourceSettingsEditor(
+      AppScope.of(context).repository,
+      widget.store,
+    )..load();
+  }
+
+  @override
   void dispose() {
+    _editor?.dispose();
     _tabs.dispose();
     super.dispose();
   }
@@ -131,7 +146,7 @@ class _DownloadsPageState extends State<DownloadsPage>
 
   _View _viewFor(int index) {
     final jobs = widget.downloads.jobs;
-    final sources = index == 2
+    final sources = index >= 2
         ? const <SourceSite>[]
         : downloadSources(
             index == 0
@@ -171,8 +186,26 @@ class _DownloadsPageState extends State<DownloadsPage>
   Widget _page(BuildContext context, int index, _View view) => switch (index) {
     0 => _pendingList(context, view),
     1 => _downloadedGrid(context, view),
+    2 => _mergeList(context),
+    3 => _settingsBody(context, SettingsGroup.download),
+    4 => _settingsBody(context, SettingsGroup.storage),
     _ => _mergeList(context),
   };
+
+  Widget _settingsBody(BuildContext context, SettingsGroup group) => ListView(
+    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+    children: [
+      SettingsSection(
+        group: group,
+        store: widget.store,
+        editor: _editor!,
+        open: (title, body) => openPage<void>(
+          context,
+          (_) => Scaffold(appBar: AppBar(title: Text(title)), body: body(_)),
+        ),
+      ),
+    ],
+  );
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -401,6 +434,8 @@ class _DownloadsPageState extends State<DownloadsPage>
                 ? '合并'
                 : '合并 ${widget.merges.active}',
           ),
+          const Tab(text: '下载设置'),
+          const Tab(text: '存储'),
         ],
       ),
     );
