@@ -39,6 +39,119 @@ void openUsers(BuildContext context, LocalStore store) => openPage<void>(
 Future<void> openProxySettings(BuildContext context, LocalStore store) =>
     openPage<void>(context, (_) => _ProxySettingsPage(store: store));
 
+/// 打开单个设置组（供「我的」页面各入口使用）。
+Future<void> openSettingsGroup(
+  BuildContext context,
+  LocalStore store,
+  SettingsGroup group,
+) => openPage<void>(context, (_) => _SettingsGroupPage(store: store, group: group));
+
+/// 打开「下载与存储」设置（下载设置 + 存储两个分组）。
+Future<void> openDownloadSettings(BuildContext context, LocalStore store) =>
+    openPage<void>(context, (_) => _DownloadsSettingsPage(store: store));
+
+class _SettingsGroupPage extends StatefulWidget {
+  const _SettingsGroupPage({required this.store, required this.group});
+  final LocalStore store;
+  final SettingsGroup group;
+
+  @override
+  State<_SettingsGroupPage> createState() => _SettingsGroupPageState();
+}
+
+class _SettingsGroupPageState extends State<_SettingsGroupPage> {
+  ResourceSettingsEditor? _editor;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _editor ??= ResourceSettingsEditor(
+      AppScope.of(context).repository,
+      widget.store,
+    )..load();
+  }
+
+  @override
+  void dispose() {
+    _editor?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text(widget.group.label)),
+    body: ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      children: [
+        SettingsSection(
+          group: widget.group,
+          store: widget.store,
+          editor: _editor!,
+          open: (title, body) => _openFullPage(context, title, body),
+        ),
+      ],
+    ),
+  );
+}
+
+class _DownloadsSettingsPage extends StatefulWidget {
+  const _DownloadsSettingsPage({required this.store});
+  final LocalStore store;
+
+  @override
+  State<_DownloadsSettingsPage> createState() => _DownloadsSettingsPageState();
+}
+
+class _DownloadsSettingsPageState extends State<_DownloadsSettingsPage> {
+  ResourceSettingsEditor? _editor;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _editor ??= ResourceSettingsEditor(
+      AppScope.of(context).repository,
+      widget.store,
+    )..load();
+  }
+
+  @override
+  void dispose() {
+    _editor?.dispose();
+    super.dispose();
+  }
+
+  Widget _section(SettingsGroup group) => ListView(
+    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+    children: [
+      SettingsSection(
+        group: group,
+        store: widget.store,
+        editor: _editor!,
+        open: (title, body) => _openFullPage(context, title, body),
+      ),
+    ],
+  );
+
+  @override
+  Widget build(BuildContext context) => DefaultTabController(
+    length: 2,
+    child: Scaffold(
+      appBar: AppBar(
+        title: const Text('下载与存储'),
+        bottom: const TabBar(
+          tabs: [Tab(text: '下载设置'), Tab(text: '存储')],
+        ),
+      ),
+      body: TabBarView(
+        children: [
+          _section(SettingsGroup.download),
+          _section(SettingsGroup.storage),
+        ],
+      ),
+    ),
+  );
+}
+
 class _ProxySettingsPage extends StatefulWidget {
   const _ProxySettingsPage({required this.store});
   final LocalStore store;
@@ -171,6 +284,15 @@ class _SettingsPageState extends State<SettingsPage> {
     open: _open,
   );
 
+  /// 设置页可见的分组：用户、下载、存储已分别移至「我的」页面相应入口。
+  List<SettingsGroup> get _groups => [
+    for (final group in SettingsGroup.values)
+      if (group != SettingsGroup.users &&
+          group != SettingsGroup.download &&
+          group != SettingsGroup.storage)
+        group,
+  ];
+
   void _open(String title, WidgetBuilder body) {
     if (!settingsSplit(context)) {
       _openFullPage(context, title, body);
@@ -253,7 +375,7 @@ class _SettingsPageState extends State<SettingsPage> {
         children: [
           GroupCard(
             children: [
-              for (final group in SettingsGroup.values)
+              for (final group in _groups)
                 SettingsTile(
                   icon: group.icon,
                   title: group.label,
@@ -377,7 +499,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   List<Widget> _groupItems(bool television) => [
-    for (final group in SettingsGroup.values)
+    for (final group in _groups)
       Padding(
         padding: const EdgeInsets.only(top: 4),
         child: SettingsGroupItem(

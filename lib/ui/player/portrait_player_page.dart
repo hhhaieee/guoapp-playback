@@ -432,7 +432,6 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
     (_) => PlaybackSettings(
       session: _session,
       onFailure: _saveFailed,
-      onMiniWindow: widget.onMiniWindow,
     ),
   );
 

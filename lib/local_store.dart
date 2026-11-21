@@ -83,6 +83,7 @@ class LocalStore extends ChangeNotifier {
   String _current = 'default';
   bool? _forceLogin;
   bool _locked = false;
+  bool _adultUnlocked = true;
   bool _disposed = false;
   bool _erased = false;
   String? _configurationError;
@@ -110,6 +111,8 @@ class LocalStore extends ChangeNotifier {
     }
     _settings = await _readMap(_settingsFile);
     SourceSite.arrange(sourceOrder);
+    // 每次启动/重新加载都重置成人片源解锁态：锁开着→启动即锁定，锁关着→默认解锁。
+    _adultUnlocked = !adultLockEnabled;
     try {
       final users = await files.read(_usersFile);
       if (users is! Map) throw const FormatException('用户配置无效');
@@ -286,6 +289,7 @@ class LocalStore extends ChangeNotifier {
   void _block(String message) {
     _configurationError = message;
     _locked = true;
+    _adultUnlocked = true;
     _profiles = [
       const LocalProfile(id: 'default', name: '配置待恢复', download: false),
     ];
@@ -367,7 +371,8 @@ class LocalStore extends ChangeNotifier {
       !locked &&
       SourceSite.isAvailable(source) &&
       profile.allows(source) &&
-      sourceEnabled(source);
+      sourceEnabled(source) &&
+      !(adultLocked && SourceSite.isAdult(source));
   List<SourceSite> get sources =>
       SourceSite.values.where((site) => allowsSource(site.id)).toList();
   List<SourceSite> get permittedSources => [
@@ -380,6 +385,26 @@ class LocalStore extends ChangeNotifier {
       switches[source] as bool,
     _ => true,
   };
+
+  /// 成人（18+）片源锁是否开启（持久化）。
+  bool get adultLockEnabled => _flag('adultLockEnabled', false);
+
+  /// 当前是否处于成人片源锁定态（开启且本会话尚未解锁）。
+  bool get adultLocked => adultLockEnabled && !_adultUnlocked;
+
+  /// 是否存在任何成人片源。
+  bool get hasAdultSources => SourceSite.allValues.any((site) => site.adult);
+
+  Future<void> setAdultLockEnabled(bool value) =>
+      _setting('adultLockEnabled', value);
+
+  /// 本次会话内解锁成人片源（不持久化，重启后重新锁定）。
+  void unlockAdult() {
+    if (!_adultUnlocked) {
+      _adultUnlocked = true;
+      _notify();
+    }
+  }
 
   Future<void> setSourceEnabled(String source, bool enabled) {
     if (!SourceSite.isAvailable(source)) {

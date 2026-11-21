@@ -10,7 +10,6 @@ import '../../ios_picture_in_picture.dart';
 import '../../local_store.dart';
 import '../../picture_in_picture.dart';
 import '../../playback_session.dart';
-import '../../volume_keys_hud.dart';
 import '../app_scope.dart';
 import 'audio_player_page.dart';
 import 'landscape_player_page.dart';
@@ -36,7 +35,6 @@ class _PlaybackPageState extends State<PlaybackPage> {
   final _pageScope = FocusScopeNode(debugLabel: 'playbackPage');
   final _pip = PictureInPicture.instance;
   final _iosPip = IosPictureInPicture.instance;
-  final _volumeHud = VolumeKeysHud.instance;
   bool _suspendPipSync = false;
   late bool _wideVideo = _measure();
   late bool _audio = _session.audio;
@@ -64,9 +62,6 @@ class _PlaybackPageState extends State<PlaybackPage> {
     _iosPip.onState = _iosPipState;
     _iosPip.onAction = _action;
     _iosPip.addListener(_iosPipChanged);
-    if (_volumeHud.supported) {
-      unawaited(_volumeHud.setEnabled(widget.store.playbackPreferences.volumeKeysHud));
-    }
     _bind();
     WidgetsBinding.instance.addPostFrameCallback((_) => _sync());
   }
@@ -156,8 +151,13 @@ class _PlaybackPageState extends State<PlaybackPage> {
     if (!mounted) return;
     final foreground = playerVisible(WidgetsBinding.instance.lifecycleState);
     _session.setForeground(!active && foreground);
-    // PiP 结束回到前台时，恢复被暂停的本地播放器并同步进度。
-    if (!active && foreground && !_session.player.state.playing) {
+    if (active) {
+      // 系统 PiP 真正启动后，暂停本地播放器避免双音；暂停期间不回写 PiP。
+      _suspendPipSync = true;
+      if (_session.player.state.playing) _session.togglePlayback();
+      _suspendPipSync = false;
+    } else if (foreground && !_session.player.state.playing) {
+      // PiP 结束回到前台时，恢复被暂停的本地播放器并同步进度。
       _session.togglePlayback();
     }
     setState(() {});
@@ -210,10 +210,8 @@ class _PlaybackPageState extends State<PlaybackPage> {
         if (ok) {
           _closeRoutesAbove();
           _session.setLocked(false);
-          // 交给系统 PiP 后暂停本地播放器，避免双份声音；暂停期间不要回写 PiP。
-          _suspendPipSync = true;
-          if (session.player.state.playing) session.togglePlayback();
-          _suspendPipSync = false;
+          // 暂停本地播放器移到 _iosPipState(active=true) 回调：只有系统 PiP
+          // 真正启动后才暂停，避免 PiP 未启动时点击画中画却把视频暂停。
           return;
         }
       }
@@ -303,9 +301,6 @@ class _PlaybackPageState extends State<PlaybackPage> {
                   onClose: () => unawaited(_close()),
                 )
               : PictureInPictureView(handle: widget.handle),
-        if (_volumeHud.supported &&
-            widget.store.playbackPreferences.volumeKeysHud)
-          VolumeHudOverlay(hud: _volumeHud),
       ],
     );
   }

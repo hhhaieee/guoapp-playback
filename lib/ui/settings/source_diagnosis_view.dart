@@ -10,8 +10,6 @@ import '../../local_store.dart';
 import '../../models.dart';
 import '../app_scope.dart';
 import '../widgets/focus_ring.dart';
-import '../widgets/group_card.dart';
-import 'diary_view.dart';
 import 'settings_rows.dart';
 import '../../diagnostics/source_diagnosis.dart';
 
@@ -204,8 +202,6 @@ class _SourceDiagnosisViewState extends State<SourceDiagnosisView> {
     }
   }
 
-  void _openDiary() => widget.open('播放调试日记', (_) => const DiaryView());
-
   // 灰=未检测，主题色=检测中，绿=全通过，橙=有失败。
   Color _dotColor(DiagnosisResult result, ColorScheme colors) {
     if (result.running) return colors.primary;
@@ -215,7 +211,6 @@ class _SourceDiagnosisViewState extends State<SourceDiagnosisView> {
 
   @override
   Widget build(BuildContext context) {
-    final scope = AppScope.of(context);
     final colors = Theme.of(context).colorScheme;
     return ListenableBuilder(
       listenable: widget.store,
@@ -253,23 +248,6 @@ class _SourceDiagnosisViewState extends State<SourceDiagnosisView> {
             '深度B（第二主站）：搜索 → 详情 → 播放解析 → 流参数 → 取流吞吐 → 榜单。\n'
             '标准（其余源）：搜索/列表 → 详情 → 播放解析 → 媒体可达。',
             style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
-          ),
-          const SizedBox(height: 12),
-          SettingsCard(
-            children: [
-              SettingsTile(
-                title: '播放调试日记',
-                subtitle: '查看并复制本机运行与播放事件日志（不联网）',
-                icon: Icons.receipt_long_outlined,
-                onTap: _openDiary,
-              ),
-              SettingsTile(
-                title: '诊断说明',
-                subtitle: '当前版本 ${scope.version.isEmpty ? '未知' : scope.version}'
-                    ' · 检测全程串行，不会并发请求',
-                icon: Icons.info_outline,
-              ),
-            ],
           ),
         ],
       ),

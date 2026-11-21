@@ -88,11 +88,9 @@ class PlaybackSettings extends StatelessWidget {
     super.key,
     required this.session,
     required this.onFailure,
-    this.onMiniWindow,
   });
   final PlaybackSession session;
   final VoidCallback onFailure;
-  final VoidCallback? onMiniWindow;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -112,7 +110,6 @@ class PlaybackSettings extends StatelessWidget {
         child: PlaybackSettingsList(
           session: session,
           onFailure: onFailure,
-          onMiniWindow: onMiniWindow,
           onCast: () {
             final navigator = Navigator.of(context);
             navigator.pop();
@@ -129,12 +126,10 @@ class PlaybackSettingsList extends StatelessWidget {
     super.key,
     required this.session,
     required this.onFailure,
-    this.onMiniWindow,
     required this.onCast,
   });
   final PlaybackSession session;
   final VoidCallback onFailure;
-  final VoidCallback? onMiniWindow;
   final VoidCallback onCast;
 
   Future<void> _change(Future<void> Function() change) async {
@@ -286,13 +281,6 @@ class PlaybackSettingsList extends StatelessWidget {
               }
             },
           ),
-          if (onMiniWindow case final onMiniWindow?)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.picture_in_picture_alt_rounded),
-              title: const Text('小窗播放'),
-              onTap: onMiniWindow,
-            ),
           if (castSupported)
             ListTile(
               contentPadding: EdgeInsets.zero,

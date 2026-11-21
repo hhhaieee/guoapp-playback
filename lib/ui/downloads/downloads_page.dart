@@ -8,6 +8,7 @@ import '../../merge_queue.dart';
 import '../../models.dart';
 import '../../source_modules.dart';
 import '../app_scope.dart';
+import '../settings/settings_page.dart';
 import '../shell/app_shell.dart';
 import '../theme/motion.dart';
 import '../widgets/cover_image.dart';
@@ -439,6 +440,11 @@ class _DownloadsPageState extends State<DownloadsPage>
                 if (_downloadedTab && view.downloaded.isNotEmpty)
                   _editButton(view, icon: false),
                 if (_mergeTab) _clearMerges(icon: false),
+                IconButton(
+                  tooltip: '下载与存储设置',
+                  onPressed: () => openDownloadSettings(context, widget.store),
+                  icon: const Icon(Icons.settings_outlined),
+                ),
                 const SizedBox(width: 8),
               ],
               bottom: PreferredSize(

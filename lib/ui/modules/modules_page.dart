@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
+import '../../biometric_auth.dart';
 import '../../core_bridge.dart';
 import '../../local_store.dart';
 import '../../models.dart';
@@ -401,7 +402,10 @@ class _ModulesPageState extends State<ModulesPage>
       onUpdate: enabled ? () => _installIndexed(latest[module.id]!) : null,
       onUninstall: enabled ? () => _uninstall(module) : null,
     );
-    final header = [if (_error case final error?) _Note(error)];
+    final header = [
+      if (_error case final error?) _Note(error),
+      _adultLockTile(),
+    ];
     if (modules != null &&
         modules.length > 1 &&
         _store.profile.admin &&
@@ -696,7 +700,9 @@ class _ModulesPageState extends State<ModulesPage>
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: _store,
-    builder: (context, _) => AppScope.of(context).television
+    builder: (context, _) => _store.adultLocked && _store.hasAdultSources
+        ? _lockedPage()
+        : AppScope.of(context).television
         ? _television()
         : Scaffold(
             appBar: AppBar(
@@ -709,6 +715,78 @@ class _ModulesPageState extends State<ModulesPage>
             ),
             body: _body(),
           ),
+  );
+
+  /// 锁定态占位：不显示片源列表，提供 Face ID 解锁入口。
+  Widget _lockedPage() => Scaffold(
+    appBar: AppBar(title: const Text('模块')),
+    body: Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          spacing: 14,
+          children: [
+            Icon(
+              Icons.lock_outline_rounded,
+              size: 56,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+            const Text(
+              '18+ 片源已锁定',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            ),
+            Text(
+              '每次启动后需通过身份验证才会显示 18+ 片源',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 4),
+            FilledButton.icon(
+              onPressed: _unlockAdult,
+              icon: const Icon(Icons.face_rounded),
+              label: const Text('用 Face ID 解锁'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Future<void> _unlockAdult() async {
+    final ok = await BiometricAuth.authenticate('解锁已隐藏的 18+ 片源');
+    if (ok && mounted) _store.unlockAdult();
+  }
+
+  Future<void> _toggleAdultLock(bool enable) async {
+    if (enable) {
+      // 打开锁：先验证身份，验证通过才开启；开启后本会话保持解锁。
+      if (!await BiometricAuth.authenticate('开启隐藏片源锁')) return;
+      await _store.setAdultLockEnabled(true);
+      _store.unlockAdult();
+    } else {
+      // 关闭锁：锁定态需先验证，解锁态直接关闭；关闭后恢复解锁。
+      if (_store.adultLocked &&
+          !await BiometricAuth.authenticate('关闭隐藏片源锁')) {
+        return;
+      }
+      await _store.setAdultLockEnabled(false);
+      _store.unlockAdult();
+    }
+  }
+
+  Widget _adultLockTile() => SettingsCard(
+    children: [
+      SwitchTile(
+        title: '隐藏片源锁（Face ID）',
+        subtitle: '每次启动后需验证才显示 18+ 片源',
+        value: _store.adultLockEnabled,
+        onChanged: _toggleAdultLock,
+      ),
+    ],
   );
 }
 

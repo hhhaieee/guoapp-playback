@@ -25,7 +25,6 @@ import '../widgets/group_card.dart';
 import 'appearance_settings.dart';
 import 'backup_actions.dart';
 import 'boss_key_tile.dart';
-import 'diary_view.dart';
 import 'settings_rows.dart';
 import 'source_diagnosis_view.dart';
 import 'storage_view.dart';
@@ -357,15 +356,6 @@ class SettingsSection extends StatelessWidget {
                 preferences.copyWith(autoPictureInPicture: value),
               ),
             ),
-            if (Platform.isIOS)
-              SwitchTile(
-                title: '音量键显示提示',
-                subtitle: '用实体音量键调节时显示音量图标，最大/最小音量同样提示',
-                value: preferences.volumeKeysHud,
-                onChanged: (value) => savePreferences(
-                  preferences.copyWith(volumeKeysHud: value),
-                ),
-              ),
           ],
         ),
       if (Platform.isWindows || Platform.isMacOS)
@@ -694,11 +684,6 @@ class SettingsSection extends StatelessWidget {
             '数据源诊断',
             (_) => SourceDiagnosisView(store: store, open: open),
           ),
-        ),
-        SettingsTile(
-          title: '播放调试日记',
-          subtitle: '查看并复制应用运行与播放器的详细事件日志',
-          onTap: () => open('播放调试日记', (_) => const DiaryView()),
         ),
       ],
     ),

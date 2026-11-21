@@ -6,6 +6,7 @@ import AVFoundation
 import AVKit
 import CoreMedia
 import MediaPlayer
+import LocalAuthentication
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -108,6 +109,30 @@ import MediaPlayer
         result(["http": http, "https": https.isEmpty ? http : https,
                 "bypass": settings["ExceptionsList"] as? [String] ?? [],
                 "pac": (settings["ProxyAutoConfigEnable"] as? NSNumber)?.boolValue == true])
+      }
+    }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "DeviceSettings") {
+      let biometric = FlutterMethodChannel(name: "duanju/biometric", binaryMessenger: registrar.messenger())
+      biometric.setMethodCallHandler { _, call, result in
+        let context = LAContext()
+        switch call.method {
+        case "supported":
+          var error: NSError?
+          result(context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error))
+        case "authenticate":
+          let reason = (call.arguments as? [String: Any])?["reason"] as? String ?? "验证身份"
+          var error: NSError?
+          guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
+            // 无生物识别且无设备密码（模拟器等）：直接放行，避免卡死用户。
+            result(true)
+            return
+          }
+          context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { success, _ in
+            DispatchQueue.main.async { result(success) }
+          }
+        default:
+          result(FlutterMethodNotImplemented)
+        }
       }
     }
   }
