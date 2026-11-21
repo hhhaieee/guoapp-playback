@@ -623,7 +623,7 @@ class _FollowPageState extends State<FollowPage> {
               bottom: AppScope.of(context).television
                   ? 27
                   : AppScope.formFactorOf(context) == FormFactor.phone
-                  ? MediaQuery.paddingOf(context).bottom + 70
+                  ? MediaQuery.paddingOf(context).bottom + 16
                   : 32,
             ),
           ),

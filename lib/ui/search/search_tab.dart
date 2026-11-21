@@ -283,7 +283,7 @@ class SearchTabState extends State<SearchTab> {
                 bottom: television
                     ? 27
                     : AppScope.formFactorOf(context) == FormFactor.phone
-                    ? MediaQuery.paddingOf(context).bottom + 70
+                    ? MediaQuery.paddingOf(context).bottom + 16
                     : 16,
               ),
             ),
@@ -407,7 +407,7 @@ class SearchTabState extends State<SearchTab> {
                   bottom: television
                       ? 27
                       : AppScope.formFactorOf(context) == FormFactor.phone
-                      ? MediaQuery.paddingOf(context).bottom + 70
+                      ? MediaQuery.paddingOf(context).bottom + 16
                       : 16,
                 ),
               ),

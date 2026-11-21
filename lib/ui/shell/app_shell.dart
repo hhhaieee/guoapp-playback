@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -417,20 +418,29 @@ class _AppShellState extends State<AppShell> {
         FormFactor.phone => ShellBars(
           notifier: _barsShown,
           child: Scaffold(
-            extendBody: true,
-            body: NotificationListener<ScrollNotification>(
-              onNotification: _scrolled,
-              child: pages,
-            ),
-            bottomNavigationBar: covered
-                ? null
-                : _PhoneDock(
-                    tabs: tabs,
-                    selected: _tab,
-                    badged: _badged,
-                    onTap: _tap,
-                    onSearch: () => _openSearch(),
+            body: Stack(
+              children: [
+                Positioned.fill(
+                  child: NotificationListener<ScrollNotification>(
+                    onNotification: _scrolled,
+                    child: pages,
                   ),
+                ),
+                if (!covered)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: _PhoneDock(
+                      tabs: tabs,
+                      selected: _tab,
+                      badged: _badged,
+                      onTap: _tap,
+                      onSearch: () => _openSearch(),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
         FormFactor.pad || FormFactor.window => _wide(pages),
@@ -857,25 +867,32 @@ class _SearchCircleButton extends StatelessWidget {
           ),
         ],
       ),
-      child: Material(
-        color: Colors.transparent,
-        shape: CircleBorder(
-          side: BorderSide(
+      child: ClipOval(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+          child: Material(
             color: dark
-                ? Colors.white.withValues(alpha: 0.12)
-                : Colors.white.withValues(alpha: 0.5),
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: SizedBox(
-            width: 62,
-            height: 62,
-            child: Icon(
-              Icons.search_rounded,
-              size: 26,
-              color: colors.primary,
+                ? colors.surfaceContainerHighest.withValues(alpha: 0.5)
+                : colors.surface.withValues(alpha: 0.42),
+            shape: CircleBorder(
+              side: BorderSide(
+                color: dark
+                    ? Colors.white.withValues(alpha: 0.12)
+                    : Colors.white.withValues(alpha: 0.5),
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onTap,
+              child: SizedBox(
+                width: 62,
+                height: 62,
+                child: Icon(
+                  Icons.search_rounded,
+                  size: 26,
+                  color: colors.primary,
+                ),
+              ),
             ),
           ),
         ),
@@ -899,30 +916,40 @@ class _FloatingPillBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = theme.colorScheme;
     final dark = theme.brightness == Brightness.dark;
-    return Container(
-      height: 62,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(
-          color: dark
-              ? Colors.white.withValues(alpha: 0.12)
-              : Colors.white.withValues(alpha: 0.5),
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (final tab in tabs)
-            Expanded(
-              child: _FloatingPillItem(
-                tab: tab,
-                selected: tab == selected,
-                badged: badged,
-                onTap: () => onTap(tab),
-              ),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(28),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+        child: Container(
+          height: 62,
+          decoration: BoxDecoration(
+            color: dark
+                ? colors.surfaceContainerHighest.withValues(alpha: 0.5)
+                : colors.surface.withValues(alpha: 0.42),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(
+              color: dark
+                  ? Colors.white.withValues(alpha: 0.12)
+                  : Colors.white.withValues(alpha: 0.5),
             ),
-        ],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final tab in tabs)
+                Expanded(
+                  child: _FloatingPillItem(
+                    tab: tab,
+                    selected: tab == selected,
+                    badged: badged,
+                    onTap: () => onTap(tab),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
