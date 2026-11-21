@@ -620,7 +620,11 @@ class _FollowPageState extends State<FollowPage> {
             ],
           SliverPadding(
             padding: EdgeInsets.only(
-              bottom: AppScope.of(context).television ? 27 : 32,
+              bottom: AppScope.of(context).television
+                  ? 27
+                  : AppScope.formFactorOf(context) == FormFactor.phone
+                  ? MediaQuery.paddingOf(context).bottom + 70
+                  : 32,
             ),
           ),
         ],

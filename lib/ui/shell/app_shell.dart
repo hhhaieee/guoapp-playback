@@ -417,6 +417,7 @@ class _AppShellState extends State<AppShell> {
         FormFactor.phone => ShellBars(
           notifier: _barsShown,
           child: Scaffold(
+            extendBody: true,
             body: NotificationListener<ScrollNotification>(
               onNotification: _scrolled,
               child: pages,

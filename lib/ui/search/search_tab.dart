@@ -279,7 +279,13 @@ class SearchTabState extends State<SearchTab> {
               ),
             ],
             SliverPadding(
-              padding: EdgeInsets.only(bottom: television ? 27 : 16),
+              padding: EdgeInsets.only(
+                bottom: television
+                    ? 27
+                    : AppScope.formFactorOf(context) == FormFactor.phone
+                    ? MediaQuery.paddingOf(context).bottom + 70
+                    : 16,
+              ),
             ),
           ],
         ),
@@ -397,7 +403,13 @@ class SearchTabState extends State<SearchTab> {
                 sliver: SliverToBoxAdapter(child: FeedFooter(feed: feed)),
               ),
               SliverPadding(
-                padding: EdgeInsets.only(bottom: television ? 27 : 16),
+                padding: EdgeInsets.only(
+                  bottom: television
+                      ? 27
+                      : AppScope.formFactorOf(context) == FormFactor.phone
+                      ? MediaQuery.paddingOf(context).bottom + 70
+                      : 16,
+                ),
               ),
             ],
           ),

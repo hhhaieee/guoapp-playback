@@ -142,7 +142,9 @@ class MinePage extends StatelessWidget {
   );
 
   Widget _phone(BuildContext context) => ListView(
-    padding: const EdgeInsets.only(bottom: 24),
+    padding: EdgeInsets.only(
+      bottom: MediaQuery.paddingOf(context).bottom + 70,
+    ),
     children: [
       const PageHeader(title: '我的'),
       Padding(

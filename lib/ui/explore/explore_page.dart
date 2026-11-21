@@ -537,7 +537,11 @@ class ExplorePageState extends State<ExplorePage> {
                 inset,
                 8,
                 inset,
-                television ? 27 : 16,
+                television
+                    ? 27
+                    : phone
+                    ? MediaQuery.paddingOf(context).bottom + 70
+                    : 16,
               ),
               sliver: SliverToBoxAdapter(child: FeedFooter(feed: feed)),
             ),
