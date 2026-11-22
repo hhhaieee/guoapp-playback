@@ -41,6 +41,9 @@ class _PlaybackPageState extends State<PlaybackPage> {
   Map<String, String> _autoPipHeaders = const {};
   bool _autoPipArmed = false;
   bool _autoPipSyncing = false;
+  // 画中画独立播放器当前正在播放的媒体会话，用于检测切集并换源。
+  String? _pipSourceSession;
+  bool _pipSwitching = false;
   late bool _wideVideo = _measure();
   late bool _audio = _session.audio;
   MediaQueryData? _media;
@@ -147,9 +150,40 @@ class _PlaybackPageState extends State<PlaybackPage> {
           widget.store.playbackPreferences.autoPictureInPicture,
     );
     _pip.resize(session.aspectRatio);
+    // 系统 PiP 播放中切集：本地播放器已换到新集，独立 AVPlayer 还停在旧集，
+    // 需要用新一集的流地址换源，否则画中画一直重复播放旧的一集。
+    if (_iosPip.active &&
+        session.mediaSession.isNotEmpty &&
+        session.mediaSession != _pipSourceSession) {
+      unawaited(_switchPipSource());
+    }
     // 系统 PiP 期间，本地播放器已暂停（画面交给独立 AVPlayer 播放），
     // 不把本地暂停状态回写，否则会把 PiP 一起暂停。
     unawaited(_syncAutoPip());
+  }
+
+  /// 画中画播放中切集：解析新一集的流地址并让独立 AVPlayer 换源。
+  Future<void> _switchPipSource() async {
+    if (_pipSwitching) return;
+    _pipSwitching = true;
+    try {
+      final session = _session;
+      final mediaSession = session.mediaSession;
+      if (mediaSession.isEmpty || mediaSession == _pipSourceSession) return;
+      final resolved = await _resolvePipUrl();
+      if (!mounted || !_iosPip.active) return;
+      if (resolved.url.isEmpty) return;
+      // 记录目标会话，避免重复换源；换源失败时原生会回调错误。
+      _pipSourceSession = mediaSession;
+      await _iosPip.switchSource(
+        url: resolved.url,
+        headers: resolved.headers,
+        positionMs: 0,
+        rate: session.speed,
+      );
+    } finally {
+      _pipSwitching = false;
+    }
   }
 
   void _iosPipChanged() {
@@ -160,6 +194,8 @@ class _PlaybackPageState extends State<PlaybackPage> {
     if (!mounted) return;
     final foreground = playerVisible(WidgetsBinding.instance.lifecycleState);
     if (active) {
+      // 记录 PiP 独立播放器正在播放的会话，作为切集换源的基准。
+      _pipSourceSession = _session.mediaSession;
       // 系统 PiP 启动：本地播放器交给 PiP 的独立 AVPlayer，暂停原画面。
       // 用幂等的 player.pause() 而非 togglePlayback()，避免 playOrPause 与
       // setForeground 的暂停竞争，导致原画面与画中画同时播放。

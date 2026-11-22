@@ -281,18 +281,23 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   private var autoArmed = false
   private var autoArgs: [String: Any] = [:]
   private var autoObserver: NSObjectProtocol?
+  // 预热：前台播放时就建好 AVPlayer/Layer 并渲染就绪，离开时可直接启动 PiP，
+  // 避免在 willResignActive 才临时建 layer、等渲染，却因马上进后台而卡住。
+  private var prepared = false
+  private var preparedUrl: String?
 
   init(messenger: FlutterBinaryMessenger) {
     channel = FlutterMethodChannel(name: "duanju/pip", binaryMessenger: messenger)
     super.init()
     // 「离开应用时自动画中画」：在 App 即将失去活跃（进入后台/锁屏）的瞬间
     // 启动系统画中画。此时场景仍处于可启动 PiP 的过渡态，成功率最高。
+    // layer 已在前台由 armAuto 预热渲染就绪，这里直接启动即可。
     autoObserver = NotificationCenter.default.addObserver(
       forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
     ) { [weak self] _ in
       guard let self, self.autoArmed,
             !(self.pipController?.isPictureInPictureActive ?? false) else { return }
-      self.enter(self.autoArgs)
+      self.startAuto()
     }
     channel.setMethodCallHandler { [weak self] call, result in
       guard let self else { result(nil); return }
@@ -314,20 +319,85 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
       case "disarmAuto":
         self.disarmAuto()
         result(nil)
+      case "switchSource":
+        self.switchSource(call.arguments as? [String: Any] ?? [:])
+        result(nil)
       default:
         result(FlutterMethodNotImplemented)
       }
     }
   }
 
+  /// 前台播放中调用：提前建好 AVPlayer/Layer 并渲染就绪（静音待命），
+  /// 这样 willResignActive 时可直接启动 PiP，不必等渲染导致卡在后台。
   private func armAuto(_ args: [String: Any]) {
     autoArgs = args
     autoArmed = !args.isEmpty
+    guard autoArmed else { return }
+    let url = args["url"] as? String ?? ""
+    // 地址没变且已预热：只更新进度/倍速，不重建 layer（切集时由 switchSource 换源）。
+    // 带 seek 标记让预热 player 的进度跟随本地播放器，离开时从正确位置开播。
+    if prepared, preparedUrl == url, player != nil {
+      var synced = args
+      synced["seek"] = true
+      update(synced)
+      return
+    }
+    prepare(args, autoplay: false)
   }
 
   private func disarmAuto() {
     autoArmed = false
     autoArgs = [:]
+    prepared = false
+    preparedUrl = nil
+    // 未真正进入 PiP 时，回收预热用的播放器/layer。
+    if pipController?.isPictureInPictureActive != true {
+      cleanup()
+    }
+  }
+
+  /// 画中画播放中切集：用新一集的流地址替换当前 item，PiP 窗口不中断。
+  private func switchSource(_ args: [String: Any]) {
+    guard AVPictureInPictureController.isPictureInPictureSupported(),
+          let urlString = args["url"] as? String,
+          let url = URL(string: urlString),
+          let player else { return }
+    var options: [String: Any] = [:]
+    if let headers = args["headers"] as? [String: String], !headers.isEmpty {
+      options["AVURLAssetHTTPHeaderFieldsKey"] = headers
+    }
+    let asset = AVURLAsset(url: url, options: options)
+    let item = AVPlayerItem(asset: asset)
+    let rate = (args["rate"] as? NSNumber)?.doubleValue ?? 1
+    lastRate = rate > 0 ? rate : 1
+    let position = (args["positionMs"] as? NSNumber)?.doubleValue ?? 0
+    kvoToken?.invalidate()
+    kvoToken = item.observe(\.status, options: [.new]) { [weak self] observed, _ in
+      DispatchQueue.main.async {
+        guard let self else { return }
+        switch observed.status {
+        case .readyToPlay:
+          self.kvoToken = nil
+          self.playerItem = item
+          self.preparedUrl = urlString
+          player.replaceCurrentItem(with: item)
+          item.seek(to: CMTime(value: Int64(position), timescale: 1000),
+                    toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            DispatchQueue.main.async {
+              guard let self else { return }
+              player.rate = Float(self.lastRate)
+            }
+          }
+        case .failed:
+          self.kvoToken = nil
+          let message = observed.error?.localizedDescription ?? "新一集加载失败"
+          self.channel.invokeMethod("state", arguments: ["active": true, "error": message])
+        default:
+          break
+        }
+      }
+    }
   }
 
   private func prepareAudio() {
@@ -346,7 +416,26 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     return scenes.flatMap { $0.windows }.first(where: { $0.isKeyWindow })
   }
 
+  /// 手动点画中画按钮：完整准备并立即启动 PiP。
   private func enter(_ args: [String: Any]) {
+    prepare(args, autoplay: true)
+  }
+
+  /// App 即将失活时启动预热的 PiP：layer 已在前台渲染就绪，直接开播。
+  private func startAuto() {
+    guard let player, prepared else {
+      // 预热尚未完成（例如刚进入播放就立刻离开），降级走完整启动流程。
+      enter(autoArgs)
+      return
+    }
+    prepareAudio()
+    player.rate = Float(lastRate)
+    startPictureInPicture()
+  }
+
+  /// 准备独立 AVPlayer/Layer。autoplay=false 时只预热渲染、静音待命，
+  /// 供 willResignActive 时秒开；autoplay=true 时渲染完成后立即启动 PiP。
+  private func prepare(_ args: [String: Any], autoplay: Bool) {
     guard AVPictureInPictureController.isPictureInPictureSupported(),
           let urlString = args["url"] as? String,
           let url = URL(string: urlString) else {
@@ -354,6 +443,8 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
       return
     }
     cleanup()
+    prepared = false
+    preparedUrl = urlString
     prepareAudio()
 
     var options: [String: Any] = [:]
@@ -412,7 +503,7 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
 
     // 等 AVPlayerItem 真正就绪后再 seek + 启动，避免在未就绪时触发 -1001。
     if item.status == .readyToPlay {
-      seekAndStart(item, newPlayer)
+      seekAndStart(item, newPlayer, autoplay: autoplay)
     } else {
       kvoToken = item.observe(\.status, options: [.new]) { [weak self] observed, _ in
         DispatchQueue.main.async {
@@ -420,7 +511,7 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
           switch observed.status {
           case .readyToPlay:
             self.kvoToken = nil
-            self.seekAndStart(item, newPlayer)
+            self.seekAndStart(item, newPlayer, autoplay: autoplay)
           case .failed:
             self.kvoToken = nil
             let message = observed.error?.localizedDescription ?? "视频加载失败，无法进入画中画"
@@ -434,14 +525,18 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     }
   }
 
-  private func seekAndStart(_ item: AVPlayerItem, _ newPlayer: AVPlayer) {
+  private func seekAndStart(_ item: AVPlayerItem, _ newPlayer: AVPlayer, autoplay: Bool) {
     let time = pendingSeek ?? .zero
     pendingSeek = nil
     item.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
       DispatchQueue.main.async {
         guard let self else { return }
-        newPlayer.rate = Float(self.lastRate)
-        self.waitForDisplayThenStart()
+        // 预热模式保持静音待命（rate=0），图层照样会渲染出首帧；
+        // 只有真正启动 PiP 时才设速，避免预热期间和本地播放器同时出声。
+        if !autoplay {
+          newPlayer.rate = 0
+        }
+        self.waitForDisplayThenStart(autoplay: autoplay)
       }
     }
   }
@@ -450,34 +545,45 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   /// isReadyForDisplay 等待渲染完成（带超时兜底）再启动。加密流（红果）
   /// 解密较慢，超时放宽到 15 秒；超时不再强行启动，避免图层未上屏时
   /// 反复触发 -1001。
-  private func waitForDisplayThenStart() {
+  private func waitForDisplayThenStart(autoplay: Bool) {
     guard let layer = playerLayer else {
-      startPictureInPicture()
+      if autoplay { startPictureInPicture() } else { prepared = true }
       return
     }
+    // 预热模式下图层就绪即标记完成，不启动 PiP；离开时由 startAuto 直接启动。
+    let onReady = { [weak self] in
+      guard let self else { return }
+      if autoplay {
+        self.startPictureInPicture()
+      } else {
+        self.prepared = true
+      }
+    }
     if layer.isReadyForDisplay {
-      startPictureInPicture()
+      onReady()
       return
     }
     displayToken = layer.observe(\.isReadyForDisplay, options: [.new]) { [weak self] observed, _ in
       DispatchQueue.main.async {
         guard let self else { return }
-        self.displayToken = nil
         if observed.isReadyForDisplay {
-          self.startPictureInPicture()
+          self.displayToken = nil
+          onReady()
         }
       }
     }
-    // 超时兜底：15 秒后仍未渲染则报错，不再强制启动。
+    // 超时兜底：预热模式静默失败（离开时可降级重试）；手动启动则报错。
     DispatchQueue.main.asyncAfter(deadline: .now() + 15.0) { [weak self] in
       guard let self else { return }
       if self.displayToken != nil {
         self.displayToken = nil
-        self.channel.invokeMethod("state", arguments: [
-          "active": false,
-          "error": "视频画面未能完成渲染，无法进入画中画",
-        ])
-        self.cleanup()
+        if autoplay {
+          self.channel.invokeMethod("state", arguments: [
+            "active": false,
+            "error": "视频画面未能完成渲染，无法进入画中画",
+          ])
+          self.cleanup()
+        }
       }
     }
   }
@@ -564,6 +670,8 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     pendingSeek = nil
     startAttempt = 0
     lastPipError = nil
+    prepared = false
+    preparedUrl = nil
     player?.pause()
     pipController?.delegate = nil
     pipController = nil

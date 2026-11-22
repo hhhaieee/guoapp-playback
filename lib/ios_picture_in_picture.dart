@@ -105,6 +105,24 @@ class IosPictureInPicture extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// 画中画播放中切集：用新一集的流地址替换当前 item，PiP 窗口不中断。
+  Future<void> switchSource({
+    required String url,
+    required Map<String, String> headers,
+    required double positionMs,
+    required double rate,
+  }) async {
+    if (!supported || !_active) return;
+    try {
+      await _channel.invokeMethod<void>('switchSource', {
+        'url': url,
+        'headers': headers,
+        'positionMs': positionMs,
+        'rate': rate,
+      });
+    } catch (_) {}
+  }
+
   /// 与 Flutter 播放器同步播放态/进度。
   void update({required bool playing, required double rate, double? positionMs}) {
     if (!supported || !_active) return;
