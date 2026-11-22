@@ -4,8 +4,8 @@
 
 ## 1. 项目是什么
 
-- **产品**：星星夜剧（原「小果影视」，英文名 GuoApp）——Flutter 多端短剧/影视应用。
-- **平台**：Android / iOS / Windows / macOS，另有电视（TV）适配模式。
+- **产品**：星星夜剧（原「小果影视」，英文名 GuoApp）——**只做 iOS** 的短剧/影视应用（iPhone / iPad）。
+- **平台**：仅 iOS 15.1+，产物为未签名 IPA（TrollStore 侧载或自行签名）。
 - **站源机制**：红果随安装包内置，其余站源为运行时加载的 JS 模块（可在线安装/更新，无需发版）。
 - **来源**：fork 自 `Xanerix/guoapp`，改编自 `fish2018` 源码；当前主仓库 `hhhaieee/guoapp-playback`。
 
@@ -34,11 +34,10 @@
 | `lib/` | 逻辑层：FFI、站源目录、播放、下载、本地存储、用户 |
 | `native/core/`、`native/bridge` | Go 运行时（缓存、下载、播放代理）+ C ABI |
 | `native/module_example` | 示例站源（假数据、不联网） |
-| `android` / `windows` / `ios` / `macos` | 平台工程与资源 |
-| `scripts/` | 构建、图标生成、数据清理脚本 |
+| `ios/` | iOS 平台工程与资源（`DuanjuCore` 静态库、`Runner` App 工程） |
+| `scripts/` | 构建、图标生成脚本 |
 | `test/` | 逻辑层测试（公共假仓库在 `test/support/`） |
-| `.github/workflows/build.yml` | 发布工作流 |
-| `worker/` | 检查更新/使用统计的 Cloudflare Worker |
+| `.github/workflows/build.yml` | 发布工作流（只出 iOS 包） |
 
 ## 5. 关键文件
 
@@ -58,7 +57,7 @@
 1. **改版本号**：`pubspec.yaml` 的 `version: x.y.z+NNN` 中版本号与构建号**同时** +1。
 2. **写日志**：`CHANGELOG.md` 顶部新增 `## x.y.z+NNN` 一节（每条简短；未实机验证标「开发快照」；单节 ≤3500 字）。
 3. **推送 main**，在 Actions 手动运行 **Build app packages**（工作流只在 main 上手动触发，push/PR 不自动跑）。
-4. **产物**：Android APK / Windows 安装包+便携 zip / iOS 未签名 IPA / macOS dmg；**全部平台成功才建 tag 与 Release**。
+4. **产物**：只构建 iOS 未签名 IPA；**构建成功才建 tag 与 Release**。
 5. **IPA 直链**（TrollStore 侧载）：
 
    ```
@@ -120,23 +119,23 @@
 - **Dart 3 严格类型**：`const {}` 必须写 `const <String, String>{}`，否则 iOS 构建失败。
 - **iOS 音量键私有通知**：需先 `beginReceivingRemoteControlEvents()` 才能稳定接收（尤其音量边界按键）。
 - **红果 CENC 加密流**：系统 AVPlayer 无法解密，画中画需经 `pipStream` 申请本地已解密流地址。
-- **品牌名**：App 名统一「星星夜剧」，英文名 GuoApp，构建标识/安装包前缀 `guoapp`；改品牌涉及 iOS/Android/macOS/Windows/脚本多处。
+- **品牌名**：App 名统一「星星夜剧」，英文名 GuoApp，构建标识/安装包前缀 `guoapp`；改品牌涉及 iOS 工程与脚本多处。
 - **版本号分隔符**：`+` 在 tag 中转 `-`，在 URL 中转 `%2B`。
+- **检查更新**：直读本项目 GitHub 最新 Release（`native/core/app_update.go` 请求 `api.github.com/repos/{owner}/{repo}/releases/latest`），不依赖自建服务器；本项目不做匿名使用统计。
 
 ## 10. 常用命令
 
 ```sh
-# 编译 Go 核心（flutter run 前必做）
-python3 scripts/build_native.py --platform android --abi arm64-v8a
+# 编译 iOS Go 核心（flutter run 前必做）
+python3 scripts/build_ios.py --core-only [--simulator]
 
 # 检查
 dart format --output=none --set-exit-if-changed lib test
 dart analyze --fatal-infos lib test
 flutter test --dart-define=DISABLE_REMOTE_IMAGES=true
 
-# 出包
-python3 scripts/build_ios.py        # iOS 未签名 IPA
-python3 scripts/build_android.py    # Android APK
+# 出包（iOS 未签名 IPA）
+python3 scripts/build_ios.py
 ```
 
 ## 11. 相关仓库

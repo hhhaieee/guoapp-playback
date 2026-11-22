@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 更新版本要同时递增 `pubspec.yaml` 的版本号与构建号。
 - 更新内容写在 `CHANGELOG.md` 。标题为完整版本号（如 `## 0.2.72+79`），每个版本的更新日志不得超过3500字。
 - 每条更新日志只需简单描述，不需要具体的说明。
-- 未验证的改动标为开发快照，提醒用户在对应平台进行实机测试，验证通过后，移除标记。
+- 未验证的改动标为开发快照，提醒用户在 iOS 真机（iPhone / iPad）进行实机测试，验证通过后，移除标记。
 - 不新增解释性代码注释，必要的编译或工具指令除外。采用清晰命名和模块边界。
 - 不为UI类内容编写单元测试，直接叫用户打开实际界面查看。
 - 合并外部 PR 时，先用 `git merge --no-ff` 把 PR 原提交原样合进本地 `main`，合并提交只解决冲突（如 `CHANGELOG.md` 同版本标题去重），不改 PR 内容；需要的修订另起提交。不用 cherry-pick、squash 或 amend PR 提交，保证推送后 GitHub 将 PR 显示为 Merged。
