@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 
 import '../../app_device.dart';
-import '../../diary_service.dart';
 import '../../ios_picture_in_picture.dart';
 import '../../local_store.dart';
 import '../../picture_in_picture.dart';
@@ -45,6 +44,8 @@ class _PlaybackPageState extends State<PlaybackPage> {
   // 画中画独立播放器当前正在播放的媒体会话，用于检测切集并换源。
   String? _pipSourceSession;
   bool _pipSwitching = false;
+  // 画中画内最后一次播放/暂停状态（小窗播放按钮实时回传），供返回时兜底。
+  bool _pipPlaying = true;
   late bool _wideVideo = _measure();
   late bool _audio = _session.audio;
   MediaQueryData? _media;
@@ -70,7 +71,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
     _pip.onAction = _action;
     _iosPip.onState = _iosPipState;
     _iosPip.onAction = _action;
-    _iosPip.onDiag = (msg) => DiaryService.add('[PiP原生] $msg');
+    _iosPip.onPipPlaying = _pipPlayingChanged;
     _iosPip.addListener(_iosPipChanged);
     _bind();
     VolumeKeysHud.instance.setEnabled(
@@ -86,7 +87,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
     if (_pip.onAction == _action) _pip.onAction = null;
     if (_iosPip.onAction == _action) _iosPip.onAction = null;
     if (_iosPip.onState == _iosPipState) _iosPip.onState = null;
-    _iosPip.onDiag = null;
+    if (_iosPip.onPipPlaying == _pipPlayingChanged) _iosPip.onPipPlaying = null;
     _iosPip.removeListener(_iosPipChanged);
     unawaited(_iosPip.disarmAuto());
     _pip.clear();
@@ -158,7 +159,6 @@ class _PlaybackPageState extends State<PlaybackPage> {
     if (_iosPip.active &&
         session.mediaSession.isNotEmpty &&
         session.mediaSession != _pipSourceSession) {
-      DiaryService.add('[PiP诊断] 检测到切集: active=true session=${session.mediaSession} 基准=$_pipSourceSession → 触发换源');
       unawaited(_switchPipSource());
     }
     // 系统 PiP 期间，本地播放器已暂停（画面交给独立 AVPlayer 播放），
@@ -173,15 +173,12 @@ class _PlaybackPageState extends State<PlaybackPage> {
     try {
       final session = _session;
       final mediaSession = session.mediaSession;
-      DiaryService.add('[PiP诊断] _switchPipSource进入: mediaSession=$mediaSession 基准=$_pipSourceSession mounted=$mounted active=${_iosPip.active}');
       if (mediaSession.isEmpty || mediaSession == _pipSourceSession) return;
       final resolved = await _resolvePipUrl();
-      DiaryService.add('[PiP诊断] 解析地址: url长度=${resolved.url.length} active=${_iosPip.active}');
       if (!mounted || !_iosPip.active) return;
       if (resolved.url.isEmpty) return;
       // 记录目标会话，避免重复换源；换源失败时原生会回调错误。
       _pipSourceSession = mediaSession;
-      DiaryService.add('[PiP诊断] 调用原生switchSource换源 → $mediaSession');
       await _iosPip.switchSource(
         url: resolved.url,
         headers: resolved.headers,
@@ -197,10 +194,14 @@ class _PlaybackPageState extends State<PlaybackPage> {
     if (mounted) setState(() {});
   }
 
+  /// 画中画内点播放/暂停按钮时原生实时回传，记录最后状态供返回时同步。
+  void _pipPlayingChanged(bool playing) {
+    _pipPlaying = playing;
+  }
+
   void _iosPipState(bool active,
       {String? error, double? positionMs, bool? playing}) {
     if (!mounted) return;
-    final foreground = playerVisible(WidgetsBinding.instance.lifecycleState);
     // 画中画期间保留系统媒体控制，控制中心/线控的切集命令才能送达 App。
     _session.setPipActive(active);
     if (active) {
@@ -212,18 +213,17 @@ class _PlaybackPageState extends State<PlaybackPage> {
       _session.setForeground(false);
       if (_session.player.state.playing) unawaited(_session.player.pause());
     } else {
-      // PiP 结束：先把 PiP 的进度同步回本地播放器，延续画中画最后的播放状态。
-      // playing 来自原生 AVPlayer 当时的 rate（小窗播放/暂停按钮直接控制 rate）：
-      // 画中画在播 → 返回后恢复播放；画中画暂停 → 保持暂停，不自动唤醒。
-      DiaryService.add(
-        '[PiP诊断] 返回播放器 playing=$playing foreground=$foreground positionMs=$positionMs',
-      );
+      // 画中画正在离开：先同步进度，再延续画中画最后的播放状态。
+      // 关键点：不能依赖此刻的 lifecycleState 判断前台——原生 didStopPictureInPicture
+      // 回调常早于 Flutter 的 resumed，此刻读到的是 paused/hidden，会把状态误判为
+      // 后台而跳过续播。用户从画中画点「返回全屏」就是要回到播放器，故按前台处理。
+      final wasPlaying = playing ?? _pipPlaying;
       Future<void> restore() async {
-        _session.setForeground(foreground);
-        if (foreground && playing == true) _session.resumeFromPip();
+        _session.setForeground(true);
+        if (wasPlaying) _session.resumeFromPip();
       }
 
-      if (foreground && positionMs != null && positionMs > 0) {
+      if (positionMs != null && positionMs > 0) {
         unawaited(() async {
           await _session.seekTo(Duration(milliseconds: positionMs.round()));
           if (mounted) await restore();
@@ -261,7 +261,6 @@ class _PlaybackPageState extends State<PlaybackPage> {
   }
 
   void _action(String action) {
-    DiaryService.add('[PiP诊断] 收到控制动作: $action (PiP active=${_iosPip.active})');
     switch (action) {
       case 'toggle':
         _session.togglePlayback();
