@@ -1582,6 +1582,10 @@ class PlaybackSession extends ChangeNotifier {
     }
   }
 
+  /// 从系统画中画返回时恢复播放（幂等）。供播放器页面在画中画结束时调用：
+  /// 若画中画内正在播放，返回后延续播放态。调用前需先 setForeground(true)。
+  void resumeFromPip() => _resume();
+
   /// 显式恢复播放（幂等）。不再用 togglePlayback 的「翻转」语义，
   /// 避免锁屏解锁恢复时因播放态竞态导致实际被暂停。
   void _resume() {
