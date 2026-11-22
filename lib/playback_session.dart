@@ -249,6 +249,9 @@ class PlaybackSession extends ChangeNotifier {
   bool _foreground = true;
   bool _visible = true;
   bool _playIntent = true;
+  // 系统画中画是否激活。PiP 期间需保留系统媒体控制，否则离开 App 后
+  // 控制中心/线控的「上一集/下一集」按钮失效，无法触发切集与换源。
+  bool _pipActive = false;
   bool _pendingError = false;
   bool _boosting = false;
   bool _boostLocked = false;
@@ -406,11 +409,15 @@ class PlaybackSession extends ChangeNotifier {
   void _syncMedia() {
     if (_closed) return;
     final controls = MediaControls.instance;
-    if (!_backgroundPlayback || !_engaged || !_usable || store.locked) {
+    // 系统画中画激活时也要保留媒体控制：PiP 播放期间本地播放器虽被暂停，
+    // 但控制中心/线控的「上一集/下一集」命令仍必须由本 App 接收，否则切集
+    // 指令到不了 Dart，画中画永远换不了集。
+    final keepControls = _pipActive || (_backgroundPlayback && _engaged);
+    if (!keepControls || !_engaged || !_usable || store.locked) {
       controls.release(this);
       return;
     }
-    if (!_playIntent && !controls.owns(this)) return;
+    if (!_playIntent && !_pipActive && !controls.owns(this)) return;
     final state = player.state;
     final opened = ready && _openedIndex == _index;
     controls.update(
@@ -419,8 +426,8 @@ class PlaybackSession extends ChangeNotifier {
         title: detail.drama.title,
         subtitle: episode.title,
         artwork: repository.knownCover(detail.drama) ?? '',
-        active: _playIntent && _error == null,
-        playing: _playIntent && state.playing,
+        active: _pipActive || (_playIntent && _error == null),
+        playing: _pipActive || (_playIntent && state.playing),
         position: opened ? state.position : Duration.zero,
         duration: opened ? state.duration : Duration.zero,
         rate: state.rate,
@@ -429,6 +436,14 @@ class PlaybackSession extends ChangeNotifier {
       ),
       _mediaCommand,
     );
+  }
+
+  /// 由播放器页面在画中画启动/结束时调用，切换系统媒体控制的保留策略。
+  void setPipActive(bool active) {
+    if (_closed || _pipActive == active) return;
+    DiaryService.add('[PiP诊断] session.setPipActive=$active');
+    _pipActive = active;
+    _syncMedia();
   }
 
   void _mediaCommand(MediaCommand command, Duration? position) {

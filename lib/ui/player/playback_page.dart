@@ -198,6 +198,8 @@ class _PlaybackPageState extends State<PlaybackPage> {
   void _iosPipState(bool active, {String? error, double? positionMs}) {
     if (!mounted) return;
     final foreground = playerVisible(WidgetsBinding.instance.lifecycleState);
+    // 画中画期间保留系统媒体控制，控制中心/线控的切集命令才能送达 App。
+    _session.setPipActive(active);
     if (active) {
       // 记录 PiP 独立播放器正在播放的会话，作为切集换源的基准。
       _pipSourceSession = _session.mediaSession;
