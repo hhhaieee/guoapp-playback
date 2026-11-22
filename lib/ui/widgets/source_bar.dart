@@ -137,6 +137,7 @@ class SourceBar extends StatelessWidget {
                     sources: sources,
                     currentSourceId: currentSourceId,
                     onSelectSource: onSelectSource!,
+                    spin: spin,
                   ),
                   Positioned(
                     right: 0,
@@ -166,7 +167,7 @@ class SourceBar extends StatelessWidget {
               builder: (context, value, _) => Transform.rotate(
                 angle: value / 40,
                 child: SizedBox(
-                  width: 40,
+                  width: 34,
                   height: 34,
                   child: Tooltip(
                     message: '更多站源',
@@ -177,7 +178,7 @@ class SourceBar extends StatelessWidget {
                           onTap: onMoreSources ?? () => onSwitchSource(context),
                           child: Image.asset(
                             'assets/images/star_ball.png',
-                            width: 40,
+                            width: 34,
                             height: 34,
                             fit: BoxFit.cover,
                             filterQuality: FilterQuality.high,
@@ -204,10 +205,12 @@ class _SourceChips extends StatefulWidget {
     required this.sources,
     required this.currentSourceId,
     required this.onSelectSource,
+    this.spin,
   });
   final List<SourceSite> sources;
   final String currentSourceId;
   final ValueChanged<String> onSelectSource;
+  final ValueNotifier<double>? spin;
 
   @override
   State<_SourceChips> createState() => _SourceChipsState();
@@ -222,8 +225,11 @@ class _SourceChipsState extends State<_SourceChips> {
   @override
   void initState() {
     super.initState();
+    _controller.addListener(_spun);
     WidgetsBinding.instance.addPostFrameCallback((_) => _ensureVisible());
   }
+
+  void _spun() => widget.spin?.value = _controller.offset;
 
   @override
   void didUpdateWidget(covariant _SourceChips oldWidget) {
@@ -248,6 +254,7 @@ class _SourceChipsState extends State<_SourceChips> {
 
   @override
   void dispose() {
+    _controller.removeListener(_spun);
     _controller.dispose();
     super.dispose();
   }
