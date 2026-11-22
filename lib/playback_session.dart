@@ -248,6 +248,10 @@ class PlaybackSession extends ChangeNotifier {
   bool _acceptErrors = false;
   bool _foreground = true;
   bool _visible = true;
+  // 记录「是否真正离开过前台（锁屏/切后台）」：锁屏瞬间 iOS 会先进入
+  // inactive（仍判为可见），若不加区分会在锁屏那一刻误触发恢复播放。
+  // 只有经历过不可见状态后回到前台，才执行「暂停后锁屏解锁自动恢复播放」。
+  bool _wasHidden = false;
   bool _playIntent = true;
   bool _pendingError = false;
   bool _boosting = false;
@@ -1533,7 +1537,11 @@ class PlaybackSession extends ChangeNotifier {
     if (_foreground == foreground) {
       // 后台播放开启时，锁屏不会切换 foreground，但仍要处理「回到前台恢复播放」，
       // 否则用户手动暂停后锁屏再解锁会一直停在暂停态。
-      _resumeIfPaused(visible);
+      if (!visible) {
+        _wasHidden = true;
+      } else {
+        _resumeAfterHidden();
+      }
       return;
     }
     DiaryService.add(
@@ -1543,6 +1551,7 @@ class PlaybackSession extends ChangeNotifier {
     _health.reset();
     _sync();
     if (!foreground) {
+      _wasHidden = true;
       endBoost();
       _playIntent = false;
       _pausedSince = DateTime.now();
@@ -1555,15 +1564,38 @@ class PlaybackSession extends ChangeNotifier {
     } else {
       _holdNetworkSpeed();
       if (_pendingError) _queueRecovery('foreground_pending_error');
-      _resumeIfPaused(visible);
+      _resumeAfterHidden();
     }
   }
 
   /// 暂停后锁屏/切后台，回到前台时恢复播放（横竖屏一致）。
-  void _resumeIfPaused(bool visible) {
-    if (visible && !_playIntent && !player.state.playing) {
-      togglePlayback();
+  /// 只有「确实离开过前台」（锁屏/切后台）后才恢复，避免锁屏瞬间的
+  /// inactive 状态（仍判为可见）误触发恢复播放。
+  void _resumeAfterHidden() {
+    if (_playIntent || player.state.playing) return;
+    if (!_wasHidden) return;
+    _wasHidden = false;
+    _resume();
+  }
+
+  /// 显式恢复播放（幂等）。不再用 togglePlayback 的「翻转」语义，
+  /// 避免锁屏解锁恢复时因播放态竞态导致实际被暂停。
+  void _resume() {
+    if (!_usable || !ready) return;
+    endBoost();
+    _playIntent = true;
+    _health.reset();
+    _cancelStandbyIdle();
+    final paused = _takePausedSeconds();
+    if (paused >= 5) DiaryService.add('[Play] 恢复播放，已暂停 $paused 秒');
+    if (!local && paused >= 5) _armResumeWatchdog();
+    _holdNetworkSpeed();
+    if (player.state.completed) {
+      unawaited(play(_index));
+      return;
     }
+    unawaited(player.play());
+    _syncDanmaku();
   }
 
   void _setVisible(bool visible) {
