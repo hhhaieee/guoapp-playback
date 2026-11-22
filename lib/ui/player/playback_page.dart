@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 
 import '../../app_device.dart';
+import '../../diary_service.dart';
 import '../../ios_picture_in_picture.dart';
 import '../../local_store.dart';
 import '../../picture_in_picture.dart';
@@ -155,6 +156,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
     if (_iosPip.active &&
         session.mediaSession.isNotEmpty &&
         session.mediaSession != _pipSourceSession) {
+      DiaryService.add('[PiP诊断] 检测到切集: active=true session=${session.mediaSession} 基准=$_pipSourceSession → 触发换源');
       unawaited(_switchPipSource());
     }
     // 系统 PiP 期间，本地播放器已暂停（画面交给独立 AVPlayer 播放），
@@ -169,12 +171,15 @@ class _PlaybackPageState extends State<PlaybackPage> {
     try {
       final session = _session;
       final mediaSession = session.mediaSession;
+      DiaryService.add('[PiP诊断] _switchPipSource进入: mediaSession=$mediaSession 基准=$_pipSourceSession mounted=$mounted active=${_iosPip.active}');
       if (mediaSession.isEmpty || mediaSession == _pipSourceSession) return;
       final resolved = await _resolvePipUrl();
+      DiaryService.add('[PiP诊断] 解析地址: url长度=${resolved.url.length} active=${_iosPip.active}');
       if (!mounted || !_iosPip.active) return;
       if (resolved.url.isEmpty) return;
       // 记录目标会话，避免重复换源；换源失败时原生会回调错误。
       _pipSourceSession = mediaSession;
+      DiaryService.add('[PiP诊断] 调用原生switchSource换源 → $mediaSession');
       await _iosPip.switchSource(
         url: resolved.url,
         headers: resolved.headers,
@@ -241,6 +246,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
   }
 
   void _action(String action) {
+    DiaryService.add('[PiP诊断] 收到控制动作: $action (PiP active=${_iosPip.active})');
     switch (action) {
       case 'toggle':
         _session.togglePlayback();

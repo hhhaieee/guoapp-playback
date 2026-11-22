@@ -433,6 +433,7 @@ class PlaybackSession extends ChangeNotifier {
 
   void _mediaCommand(MediaCommand command, Duration? position) {
     if (_closed) return;
+    DiaryService.add('[PiP诊断] 系统媒体命令: ${command.name} 当前session=$mediaSession hasNext=$hasNext');
     switch (command) {
       case MediaCommand.play:
         if (paused) togglePlayback();
@@ -1126,8 +1127,10 @@ class PlaybackSession extends ChangeNotifier {
   }
 
   Future<bool> next() async {
+    DiaryService.add('[PiP诊断] next() 调用: hasNext=$hasNext 当前index=$_index → ${_index + 1}');
     if (!hasNext) return false;
     await play(_index + 1);
+    DiaryService.add('[PiP诊断] next() 完成: 新index=$_index 新session=$mediaSession');
     return true;
   }
 
