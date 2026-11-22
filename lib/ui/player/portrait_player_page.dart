@@ -112,8 +112,10 @@ class _PortraitPlayerPageState extends State<PortraitPlayerPage>
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) =>
-      _session.setForeground(playerVisible(state));
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _session.setForeground(playerVisible(state));
+    if (state == AppLifecycleState.inactive) _session.onInactive();
+  }
 
   void _bind() {
     final player = _session.player;

@@ -1578,6 +1578,15 @@ class PlaybackSession extends ChangeNotifier {
     _resume();
   }
 
+  /// 应用进入 inactive（锁屏/来电等）的瞬间立即开始后台播放。
+  /// 用户诉求：只要锁屏，哪怕当前是暂停状态也马上播放（锁屏即播放联动）。
+  /// 用 inactive 而不是 paused 作为触发点，消除「黑屏后才有声音」的延迟。
+  void onInactive() {
+    if (_closed || !_backgroundPlayback || !_usable || !ready) return;
+    if (player.state.playing && _playIntent) return;
+    _resume();
+  }
+
   /// 暂停后锁屏/切后台，回到前台时恢复播放（横竖屏一致）。
   /// 只有「确实离开过前台」（锁屏/切后台）后才恢复，避免锁屏瞬间的
   /// inactive 状态（仍判为可见）误触发恢复播放。
