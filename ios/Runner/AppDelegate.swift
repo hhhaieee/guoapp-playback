@@ -606,31 +606,28 @@ final class VolumeKeyWatcher: NSObject {
   private var volumeToken: NSObjectProtocol?
   private var suppress = false
   private var lastVolume: Float = 0
+  private let volumeView = MPVolumeView(frame: CGRect(x: -100, y: -100, width: 1, height: 1))
+  private var resetWork: DispatchWorkItem?
 
   init(messenger: FlutterBinaryMessenger) {
     channel = FlutterMethodChannel(name: "duanju/volume", binaryMessenger: messenger)
     super.init()
     lastVolume = AVAudioSession.sharedInstance().outputVolume
     // 关键：监听 AVSystemController_SystemVolumeDidChangeNotification 私有通知前，
-    // 必须先开启远程控制事件接收，否则该通知在部分设备/系统上收不到或飘忽不定，
-    // 导致「音量到最大/最小后继续按同一方向」不再弹出音量提示图标。
+    // 必须先开启远程控制事件接收，否则该通知在部分设备/系统上收不到或飘忽不定。
     UIApplication.shared.beginReceivingRemoteControlEvents()
-    // 物理音量键：AVSystemController 私有通知在每次按键时都会触发，即使音量已到
-    // 最大/最小值、数值不变；这样在边界继续按音量键也能弹出音量提示图标。
+    // 物理音量键：只要收到系统音量变化通知就弹图标，不再依赖 reason 字段
+    // （音量到最大/最小后继续按同方向时，reason 可能不再是 ExplicitVolumeChange）。
     volumeToken = NotificationCenter.default.addObserver(
       forName: NSNotification.Name("AVSystemController_SystemVolumeDidChangeNotification"),
       object: nil,
       queue: .main
-    ) { [weak self] note in
+    ) { [weak self] _ in
       guard let self, !self.suppress else { return }
-      let reason = note.userInfo?["AVSystemController_AudioVolumeChangeReasonNotificationParameter"] as? String
-      guard reason == "ExplicitVolumeChange" else { return }
       let value = AVAudioSession.sharedInstance().outputVolume
       self.lastVolume = value
-      self.channel.invokeMethod("changed", arguments: [
-        "volume": Double(value),
-        "enabled": true,
-      ])
+      self.emit(value)
+      self.scheduleBoundaryResetIfNeeded(value)
     }
     // KVO 兜底：程序内（如 MPVolumeView）或路由变化导致的音量变化。
     observation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.new]) { [weak self] session, _ in
@@ -639,10 +636,8 @@ final class VolumeKeyWatcher: NSObject {
       if abs(value - self.lastVolume) < 0.001 { return }
       self.lastVolume = value
       if self.suppress { return }
-      self.channel.invokeMethod("changed", arguments: [
-        "volume": Double(value),
-        "enabled": true,
-      ])
+      self.emit(value)
+      self.scheduleBoundaryResetIfNeeded(value)
     }
     channel.setMethodCallHandler { [weak self] call, result in
       guard let self else { result(nil); return }
@@ -658,6 +653,50 @@ final class VolumeKeyWatcher: NSObject {
       default:
         result(FlutterMethodNotImplemented)
       }
+    }
+  }
+
+  private func emit(_ value: Float) {
+    channel.invokeMethod("changed", arguments: [
+      "volume": Double(value),
+      "enabled": true,
+    ])
+  }
+
+  /// 音量到顶/到底后，系统不再改变音量，继续按同方向实体键不会再发
+  /// `AVSystemController_SystemVolumeDidChangeNotification`。这里在到达边界的瞬间
+  /// 安排一次「往内微调一档」，保证下一次按键仍能触发通知、弹出音量提示图标。
+  private func scheduleBoundaryResetIfNeeded(_ value: Float) {
+    guard value >= 0.995 || value <= 0.005 else { return }
+    resetWork?.cancel()
+    let target: Float = value >= 0.995 ? 0.97 : 0.03
+    let work = DispatchWorkItem { [weak self] in
+      guard let self else { return }
+      self.suppress = true
+      self.setSystemVolume(target)
+      self.lastVolume = target
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+        self?.suppress = false
+      }
+    }
+    resetWork = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+  }
+
+  private func setSystemVolume(_ value: Float) {
+    installVolumeView()
+    if let slider = volumeView.subviews.first(where: { $0 is UISlider }) as? UISlider {
+      slider.value = value
+    }
+  }
+
+  private func installVolumeView() {
+    if volumeView.superview != nil { return }
+    if let window = UIApplication.shared.connectedScenes
+      .compactMap({ $0 as? UIWindowScene })
+      .flatMap({ $0.windows })
+      .first(where: { $0.isKeyWindow }) {
+      window.addSubview(volumeView)
     }
   }
 }

@@ -49,6 +49,18 @@ func nativeReleasePrefix() string {
 	return project + "/releases/"
 }
 
+// nativeProjectOwnerRepo 从 nativeProjectURL（形如 https://github.com/owner/repo）
+// 解析出 owner 与 repo，用于直接请求 GitHub Releases API。
+func nativeProjectOwnerRepo() (string, string) {
+	project := strings.TrimRight(strings.TrimSpace(nativeProjectURL), "/")
+	project = strings.TrimPrefix(strings.TrimPrefix(project, "https://"), "http://")
+	parts := strings.Split(project, "/")
+	if len(parts) >= 3 && parts[0] == "github.com" {
+		return parts[1], parts[2]
+	}
+	return "", ""
+}
+
 func nativeAppBuildSlug() string { return "guoapp" }
 
 func nativeAppBuildNumber(version string) (int, bool) {
@@ -119,35 +131,23 @@ func (engine *nativeEngine) checkUpdate(ctx context.Context, version string) (na
 	if !valid {
 		return nativeUpdate{}, errors.New("应用版本号无效")
 	}
-	servers := nativeUpdateServers()
-	if len(servers) == 0 {
-		return nativeUpdate{}, errors.New("这个安装包没有配置更新服务器，无法检查更新")
+	// 直接检测本项目 GitHub 最新 Release，不再依赖自建更新服务器。
+	owner, repo := nativeProjectOwnerRepo()
+	if owner == "" || repo == "" {
+		return nativeUpdate{}, errors.New("这个安装包没有配置项目地址，无法检查更新")
 	}
-	var latest nativeUpdate
-	var err error
-	for _, server := range servers {
-		if latest, err = engine.fetchLatest(ctx, server); err == nil || ctx.Err() != nil {
-			break
-		}
-	}
+	latest, err := engine.fetchGithubLatest(ctx, owner, repo)
 	if err != nil {
-		return nativeUpdate{}, fmt.Errorf("更新服务器请求失败：%w", err)
+		return nativeUpdate{}, err
 	}
 	number, valid := nativeAppBuildNumber(latest.Version)
 	if !valid {
-		return nativeUpdate{}, errors.New("更新服务器没有返回有效的版本号")
+		return nativeUpdate{}, errors.New("项目最新发布没有返回有效的版本号")
 	}
 	if number <= current {
 		return nativeUpdate{}, nil
 	}
-	prefix := nativeReleasePrefix()
-	if prefix == "" {
-		return nativeUpdate{}, errors.New("这个安装包没有配置项目地址，无法确认新版本的发布页")
-	}
-	if !strings.HasPrefix(latest.URL, prefix) {
-		return nativeUpdate{}, errors.New("更新服务器返回的发布页不属于本项目，已忽略")
-	}
-	return nativeUpdate{Available: true, Version: latest.Version, URL: latest.URL}, nil
+	return latest, nil
 }
 
 func (engine *nativeEngine) fetchLatest(ctx context.Context, server string) (nativeUpdate, error) {
@@ -165,4 +165,41 @@ func (engine *nativeEngine) fetchLatest(ctx context.Context, server string) (nat
 	}
 	var latest nativeUpdate
 	return latest, json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&latest)
+}
+
+// fetchGithubLatest 直接请求 GitHub Releases API 获取本项目最新发布，解析
+// 形如 `app-vX.Y.Z-NNN` 的 tag，得到版本号与发布页地址。
+func (engine *nativeEngine) fetchGithubLatest(ctx context.Context, owner, repo string) (nativeUpdate, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nativeUpdate{}, err
+	}
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("User-Agent", "guoapp-update")
+	response, err := engine.downloader.client.Do(request)
+	if err != nil {
+		return nativeUpdate{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nativeUpdate{}, fmt.Errorf("检查更新失败：HTTP %d", response.StatusCode)
+	}
+	var release struct {
+		TagName string `json:"tag_name"`
+		HTMLURL string `json:"html_url"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&release); err != nil {
+		return nativeUpdate{}, err
+	}
+	match := regexp.MustCompile(`^app-v(\d+\.\d+\.\d+)-(\d+)$`).FindStringSubmatch(release.TagName)
+	if match == nil {
+		return nativeUpdate{}, errors.New("项目最新发布的标签格式不正确")
+	}
+	version := match[1] + "+" + match[2]
+	htmlURL := release.HTMLURL
+	if htmlURL == "" {
+		htmlURL = nativeReleasePrefix() + release.TagName
+	}
+	return nativeUpdate{Available: true, Version: version, URL: htmlURL}, nil
 }

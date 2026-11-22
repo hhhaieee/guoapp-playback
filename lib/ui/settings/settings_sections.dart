@@ -64,14 +64,13 @@ const _androidDecoders = {
 };
 const _links = [
   [
-    ('GitHub · 重建版', String.fromEnvironment('PROJECT_URL')),
-    ('GitHub · 原作者', 'https://github.com/fish2018'),
+    ('GitHub · 重建版', 'https://github.com/hhhaieee/guoapp-playback'),
+    ('GitHub · 原作者', 'http://github.com/Xanerix/guoapp'),
   ],
   [
-    ('Telegram · 交流群组', String.fromEnvironment('TELEGRAM_GROUP_URL')),
-    ('Telegram · 更新频道', String.fromEnvironment('TELEGRAM_CHANNEL_URL')),
+    ('Telegram · 交流群组', 'https://t.me/+YSqr4JMPdSg2YWJl'),
+    ('Telegram · 更新频道', 'https://t.me/+Wzj_vGsELV04OTc9'),
   ],
-  [('感谢赞助 · mnyyds', 'https://github.com/mnyyds')],
 ];
 
 class SettingsSection extends StatelessWidget {
@@ -634,13 +633,6 @@ class SettingsSection extends StatelessWidget {
             value: store.checkUpdates,
             onChanged: (value) =>
                 saveSetting(context, () => store.setCheckUpdates(value)),
-          ),
-          SwitchTile(
-            title: '匿名使用统计',
-            subtitle: '启动时发送随机编号、版本号、平台和所属版本，用于统计使用人数',
-            value: store.shareUsage,
-            onChanged: (value) =>
-                saveSetting(context, () => store.setShareUsage(value)),
           ),
         ],
       ),

@@ -1530,7 +1530,12 @@ class PlaybackSession extends ChangeNotifier {
     if (_closed) return;
     _setVisible(visible);
     final foreground = visible || _backgroundPlayback;
-    if (_foreground == foreground) return;
+    if (_foreground == foreground) {
+      // 后台播放开启时，锁屏不会切换 foreground，但仍要处理「回到前台恢复播放」，
+      // 否则用户手动暂停后锁屏再解锁会一直停在暂停态。
+      _resumeIfPaused(visible);
+      return;
+    }
     DiaryService.add(
       foreground ? '[Play] 应用回到前台' : '[Play] 应用不可见，暂停播放',
     );
@@ -1550,10 +1555,14 @@ class PlaybackSession extends ChangeNotifier {
     } else {
       _holdNetworkSpeed();
       if (_pendingError) _queueRecovery('foreground_pending_error');
-      // 暂停后锁屏/切后台，回到前台时恢复播放（横竖屏一致）。
-      if (!_playIntent && !player.state.playing) {
-        togglePlayback();
-      }
+      _resumeIfPaused(visible);
+    }
+  }
+
+  /// 暂停后锁屏/切后台，回到前台时恢复播放（横竖屏一致）。
+  void _resumeIfPaused(bool visible) {
+    if (visible && !_playIntent && !player.state.playing) {
+      togglePlayback();
     }
   }
 

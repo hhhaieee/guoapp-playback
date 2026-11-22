@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -25,9 +23,6 @@ Future<void> runStartupChecks(BuildContext context, LocalStore store) async {
   final AppUpdate update;
   try {
     current = await currentAppVersion();
-    if (store.shareUsage) {
-      unawaited(repository.reportUsage(current).catchError((_) {}));
-    }
     if (!store.checkUpdates) return;
     final latest = await repository.checkUpdate(current);
     if (latest == null) return;
