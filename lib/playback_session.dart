@@ -1538,9 +1538,9 @@ class PlaybackSession extends ChangeNotifier {
       // 后台播放开启时，锁屏不会切换 foreground，但仍要处理「回到前台恢复播放」，
       // 否则用户手动暂停后锁屏再解锁会一直停在暂停态。
       if (!visible) {
+        // 锁屏/切后台的「暂停即续播」已由 onInactive() 在 inactive 阶段统一触发，
+        // 这里不再重复触发，避免 PiP 启动等「主动隐藏」场景误把暂停的视频拉起来播放。
         _wasHidden = true;
-        // 用户需求：视频暂停后锁屏，锁屏状态下自动开始后台播放（黑屏继续出声）。
-        _resumeForBackground();
       } else {
         _resumeAfterHidden();
       }
@@ -1568,14 +1568,6 @@ class PlaybackSession extends ChangeNotifier {
       if (_pendingError) _queueRecovery('foreground_pending_error');
       _resumeAfterHidden();
     }
-  }
-
-  /// 锁屏/切后台（后台播放开启）时：若当前处于暂停态，自动开始后台播放。
-  /// 满足「视频暂停后锁屏，锁屏状态下自行播放（黑屏继续出声）」的需求。
-  void _resumeForBackground() {
-    if (!_backgroundPlayback) return;
-    if (_playIntent || !_usable || !ready) return;
-    _resume();
   }
 
   /// 应用进入 inactive（锁屏/来电等）的瞬间立即开始后台播放。
