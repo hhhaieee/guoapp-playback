@@ -108,9 +108,14 @@ class SearchTabState extends State<SearchTab> {
   void _submit(String text) {
     final query = text.trim();
     if (query.isEmpty) return;
+    unawaited(widget.store.rememberSearch(query).catchError((Object _) {}));
+    _runSearch(query);
+  }
+
+  /// 以当前资源（站源）执行搜索。切源后复用它重新搜索同一个目标。
+  void _runSearch(String query) {
     _controller.text = query;
     _focus.unfocus();
-    unawaited(widget.store.rememberSearch(query).catchError((Object _) {}));
     _results?.dispose();
     final catalog = SourceCatalog(
       _repository,
@@ -203,10 +208,15 @@ class SearchTabState extends State<SearchTab> {
             onSelected: (_) {
               if (site.id != widget.store.source) {
                 unawaited(
-                  widget.store
-                      .setSource(site.id)
-                      .then((_) => _loadHot())
-                      .catchError((Object _) {}),
+                  widget.store.setSource(site.id).then((_) {
+                    if (!mounted) return;
+                    // 搜索后切换资源：视为在新资源里搜索同一个目标。
+                    // setSource 完成后 store.source 已是新资源，_runSearch 会用它重建目录。
+                    if (_submitted.isNotEmpty) {
+                      _runSearch(_submitted);
+                    }
+                    unawaited(_loadHot());
+                  }).catchError((Object _) {}),
                 );
               }
             },
