@@ -381,7 +381,7 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   /// 监听当前 item 播到片尾：通过媒体命令通道发 next，让 Dart 切下一集，
   /// 随后 Dart 的会话变化会触发换源，把画中画切换到新一集。
   private func observeEnd(of item: AVPlayerItem) {
-    endObserver?.invalidate()
+    if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
     endObserver = nil
     endHandled = false
     endObserver = NotificationCenter.default.addObserver(
