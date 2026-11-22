@@ -36,7 +36,7 @@ class SourceBar extends StatelessWidget {
   final Widget? televisionLeading;
   final List<Widget> actions;
 
-  /// 首页源快捷切换：最多展示 5 个，其余由圆形「更多」图标承载。
+  /// 首页源快捷切换：全部标签横向滑动，可左右滑出更多。
   final List<SourceSite> sources;
   final String currentSourceId;
   final void Function(String id)? onSelectSource;
@@ -101,8 +101,8 @@ class SourceBar extends StatelessWidget {
     };
   }
 
-  /// 手机首页：仅展示源快捷切换（最多 5 个）+ 其余源圆形更多图标。
-  /// 顶部搜索框与切换站源地球按钮已移除，搜索入口改到右下角悬浮圆形按钮。
+  /// 手机首页：全部源标签横向滑动，可左右滑出更多；切换源后自动滚到选中项。
+  /// 末尾保留圆形「更多」入口打开完整站源面板。搜索入口在右下角悬浮按钮。
   Widget _phoneHomeHeader(
     BuildContext context,
     String hint,
@@ -125,51 +125,118 @@ class SourceBar extends StatelessWidget {
         child: Row(
           children: [
             Expanded(
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: sources.take(5).length,
-                separatorBuilder: (_, _) => const SizedBox(width: 8),
-                itemBuilder: (context, index) {
-                  final site = sources[index];
-                  final selected = site.id == currentSourceId;
-                  return ChoiceChip(
-                    label: Text(
-                      site.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    selected: selected,
-                    showCheckmark: false,
-                    visualDensity: VisualDensity.compact,
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    onSelected: (_) => onSelectSource?.call(site.id),
-                  );
-                },
+              child: _SourceChips(
+                sources: sources,
+                currentSourceId: currentSourceId,
+                onSelectSource: onSelectSource!,
+                onMore: onMoreSources ?? () => onSwitchSource(context),
               ),
             ),
             ...leading,
-            if (sources.length > 5)
-              Builder(
-                builder: (anchor) => Padding(
-                  padding: const EdgeInsets.only(left: 8),
-                  child: SizedBox(
-                    width: 34,
-                    height: 34,
-                    child: IconButton.filledTonal(
-                      onPressed: onMoreSources != null
-                          ? () => onMoreSources!()
-                          : () => onSwitchSource(anchor),
-                      icon: const Icon(Icons.more_horiz_rounded, size: 20),
-                      tooltip: '更多站源',
-                      padding: EdgeInsets.zero,
-                    ),
-                  ),
-                ),
-              ),
             ...actions,
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 首页源标签：全部横向滑动，末尾附「更多」入口；切换源后把选中项滚到可见。
+class _SourceChips extends StatefulWidget {
+  const _SourceChips({
+    required this.sources,
+    required this.currentSourceId,
+    required this.onSelectSource,
+    required this.onMore,
+  });
+  final List<SourceSite> sources;
+  final String currentSourceId;
+  final ValueChanged<String> onSelectSource;
+  final VoidCallback onMore;
+
+  @override
+  State<_SourceChips> createState() => _SourceChipsState();
+}
+
+class _SourceChipsState extends State<_SourceChips> {
+  final _controller = ScrollController();
+  final _keys = <String, GlobalKey>{};
+
+  GlobalKey _keyFor(String id) => _keys.putIfAbsent(id, () => GlobalKey());
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _ensureVisible());
+  }
+
+  @override
+  void didUpdateWidget(covariant _SourceChips oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentSourceId != widget.currentSourceId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _ensureVisible());
+    }
+  }
+
+  void _ensureVisible() {
+    if (!mounted) return;
+    final target = _keyFor(widget.currentSourceId).currentContext;
+    if (target != null) {
+      Scrollable.ensureVisible(
+        target,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      controller: _controller,
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      itemCount: widget.sources.length + 1,
+      separatorBuilder: (_, _) => const SizedBox(width: 8),
+      itemBuilder: (context, index) {
+        if (index == widget.sources.length) {
+          return SizedBox(
+            width: 40,
+            height: 34,
+            child: IconButton.filledTonal(
+              onPressed: widget.onMore,
+              icon: const Icon(Icons.more_horiz_rounded, size: 20),
+              tooltip: '更多站源',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+            ),
+          );
+        }
+        final site = widget.sources[index];
+        final selected = site.id == widget.currentSourceId;
+        return Container(
+          key: _keyFor(site.id),
+          child: ChoiceChip(
+            label: Text(
+              site.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            selected: selected,
+            showCheckmark: false,
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            onSelected: (_) => widget.onSelectSource(site.id),
+          ),
+        );
+      },
     );
   }
 }
