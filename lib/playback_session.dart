@@ -1539,6 +1539,8 @@ class PlaybackSession extends ChangeNotifier {
       // 否则用户手动暂停后锁屏再解锁会一直停在暂停态。
       if (!visible) {
         _wasHidden = true;
+        // 用户需求：视频暂停后锁屏，锁屏状态下自动开始后台播放（黑屏继续出声）。
+        _resumeForBackground();
       } else {
         _resumeAfterHidden();
       }
@@ -1568,6 +1570,14 @@ class PlaybackSession extends ChangeNotifier {
     }
   }
 
+  /// 锁屏/切后台（后台播放开启）时：若当前处于暂停态，自动开始后台播放。
+  /// 满足「视频暂停后锁屏，锁屏状态下自行播放（黑屏继续出声）」的需求。
+  void _resumeForBackground() {
+    if (!_backgroundPlayback) return;
+    if (_playIntent || !_usable || !ready) return;
+    _resume();
+  }
+
   /// 暂停后锁屏/切后台，回到前台时恢复播放（横竖屏一致）。
   /// 只有「确实离开过前台」（锁屏/切后台）后才恢复，避免锁屏瞬间的
   /// inactive 状态（仍判为可见）误触发恢复播放。
@@ -1594,6 +1604,8 @@ class PlaybackSession extends ChangeNotifier {
       unawaited(play(_index));
       return;
     }
+    // 先激活媒体控制与 AVAudioSession，再开始播放，确保锁屏后能后台继续出声。
+    _syncMedia();
     unawaited(player.play());
     _syncDanmaku();
   }
