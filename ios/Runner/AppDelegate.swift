@@ -285,11 +285,10 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   // 避免在 willResignActive 才临时建 layer、等渲染，却因马上进后台而卡住。
   private var prepared = false
   private var preparedUrl: String?
-  // 画中画中切集：PiP 激活期间 replaceCurrentItem 不会刷新画面（旧集循环），
-  // 需先停 PiP 再用新集重建。换源期间屏蔽 didStop 的正常收尾，避免误把本地
-  // 播放器 seek 回旧集进度。
-  private var switchingSource = false
-  private var pendingSourceSwitch: [String: Any]?
+  // PiP 内播放/暂停意图：KVO 持续跟踪 player.rate，didStop 时回传该值，
+  // 避免系统停止 PiP 时暂存 rate 导致状态同步失败。
+  private var pipPlaying = true
+  private var rateObservation: NSKeyValueObservation?
   // 画中画本集播到片尾：监听 AVPlayerItemDidPlayToEndTime，通知 Dart 切下一集。
   // 用户点「前进15秒」把进度推到片尾同样会触发。此前原生播完不做任何事，
   // 导致进度到头后画中画永远停在旧集——这是「切集还是同一集」的真正原因。
@@ -369,15 +368,6 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     }
   }
 
-  /// 画中画播放中切集。PiP 激活期间直接 replaceCurrentItem 不会刷新画面（PiP 仍
-  /// 循环旧帧），因此改为：停掉 PiP → 复用已挂载的 player/layer 换 item → 重启 PiP。
-  /// 复用现有 layer 是关键：切集时 App 多在后台，重新 prepare 会拿不到前台窗口。
-  /// 原生诊断日志回传 Dart 的 DiaryService，打通原生侧盲区。
-  private func diag(_ msg: String) {
-    NSLog("[PiPDiag] \(msg)")
-    channel.invokeMethod("diag", arguments: msg)
-  }
-
   /// 监听当前 item 播到片尾：通过媒体命令通道发 next，让 Dart 切下一集，
   /// 随后 Dart 的会话变化会触发换源，把画中画切换到新一集。
   private func observeEnd(of item: AVPlayerItem) {
@@ -391,39 +381,26 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     ) { [weak self] _ in
       guard let self, !self.endHandled else { return }
       self.endHandled = true
-      self.diag("画中画本集播到片尾，请求切下一集")
       self.mediaChannel.invokeMethod("command", arguments: ["command": "next"])
     }
   }
 
   /// 画中画播放中切集：直接在现有 AVPlayer 上替换 item，不停止画中画。
-  /// 关键：PiP 激活时 App 多在后台，iOS 不允许在后台重新 start PiP，所以
-  /// 「stop→重启」方案停了就起不来。PiP 绑定的是同一个 player，替换 item
-  /// 后会随新集渲染。此前「换源不生效」的真正原因是切集命令没到达（媒体控制
-  /// 被释放），并非直接换 item 不行——该方案现在才第一次真正被执行。
+  /// PiP 激活时 App 多在后台，iOS 不允许在后台重启 PiP，故复用同一个 player，
+  /// 替换 item 后随新集渲染。此前「换源不生效」的根因是切集命令没到达（媒体
+  /// 控制被释放），并非直接换 item 不行。
   private func switchSource(_ args: [String: Any]) {
     guard AVPictureInPictureController.isPictureInPictureSupported(),
           args["url"] as? String != nil else { return }
-    diag("switchSource 进入 pipActive=\(pipController?.isPictureInPictureActive ?? false)")
     // replaceItem 内部会 invalidate 上一次未就绪的 KVO，快速连点自动收敛到最后一次。
-    replaceItem(args, restartPip: false)
-  }
-
-  /// 完成换源：用最新目标集换 item 并重启 PiP。由 didStop 回调或超时兜底触发。
-  private func finishSourceSwitch() {
-    guard switchingSource else { return }
-    switchingSource = false
-    let args = pendingSourceSwitch ?? [:]
-    pendingSourceSwitch = nil
-    replaceItem(args, restartPip: true)
+    replaceItem(args)
   }
 
   /// 用新集 URL 替换当前 item，复用现有 player/layer/pipController（不重新挂载窗口）。
-  private func replaceItem(_ args: [String: Any], restartPip: Bool) {
+  private func replaceItem(_ args: [String: Any]) {
     guard let urlString = args["url"] as? String,
           let url = URL(string: urlString),
           let player else { return }
-    diag("replaceItem 开始 url长度=\(urlString.count) restartPip=\(restartPip)")
     kvoToken?.invalidate()
     kvoToken = nil
     var options: [String: Any] = [:]
@@ -445,15 +422,12 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     player.replaceCurrentItem(with: item)
     player.isMuted = false
 
-    let startPlayback = { [weak self] in
-      guard let self else { return }
+    let playbackRate = self.lastRate
+    let startPlayback = {
       item.seek(to: CMTime(value: Int64(position), timescale: 1000),
-                toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                toleranceBefore: .zero, toleranceAfter: .zero) { _ in
         DispatchQueue.main.async {
-          guard let self else { return }
-          player.rate = Float(self.lastRate)
-          self.diag("新集已 seek 并 rate=\(self.lastRate) 播放，pipActive=\(self.pipController?.isPictureInPictureActive ?? false)")
-          if restartPip { self.startPictureInPicture() }
+          player.rate = Float(playbackRate)
         }
       }
     }
@@ -461,7 +435,6 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     // 与 prepare 一致：先查一次当前状态，避免已是 readyToPlay 却因 KVO 只监听
     // 后续变化而漏掉；未就绪才挂 KVO 等待。
     if item.status == .readyToPlay {
-      self.diag("新集 replace 后已就绪，直接 seek 播放")
       startPlayback()
     } else {
       kvoToken = item.observe(\.status, options: [.new]) { [weak self] observed, _ in
@@ -470,12 +443,10 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
           switch observed.status {
           case .readyToPlay:
             self.kvoToken = nil
-            self.diag("新集 readyToPlay")
             startPlayback()
           case .failed:
             self.kvoToken = nil
             let message = observed.error?.localizedDescription ?? "新一集加载失败"
-            self.diag("新集加载失败: \(message)")
             self.channel.invokeMethod("state", arguments: ["active": false, "error": message])
           default:
             break
@@ -750,9 +721,6 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   }
 
   private func exit() {
-    // 用户主动退出：清除换源标志，避免切集中途退出时被 didStop 误判为换源而重启。
-    switchingSource = false
-    pendingSourceSwitch = nil
     pipController?.stopPictureInPicture()
     cleanup()
   }
@@ -763,6 +731,8 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     endHandled = false
     if let timeObserver { player?.removeTimeObserver(timeObserver) }
     timeObserver = nil
+    rateObservation?.invalidate()
+    rateObservation = nil
     kvoToken = nil
     displayToken = nil
     pendingSeek = nil
@@ -770,8 +740,6 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     lastPipError = nil
     prepared = false
     preparedUrl = nil
-    switchingSource = false
-    pendingSourceSwitch = nil
     player?.pause()
     pipController?.delegate = nil
     pipController = nil
@@ -784,26 +752,41 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   }
 
   // MARK: AVPictureInPictureControllerDelegate
+  /// KVO 持续跟踪 PiP 内 AVPlayer 的播放/暂停（小窗播放按钮直接改 rate）。
+  /// 实时回传让控制中心状态与画中画一致；didStop 时回传最后的 pipPlaying，
+  /// 避免系统停止 PiP 时暂存 rate 导致返回后状态同步失败。
+  private func startRateObservation() {
+    rateObservation?.invalidate()
+    rateObservation = nil
+    guard let player else { return }
+    pipPlaying = player.rate > 0
+    rateObservation = player.observe(\.rate, options: [.initial, .new]) { [weak self] observed, _ in
+      guard let self else { return }
+      let playing = observed.rate > 0
+      self.pipPlaying = playing
+      self.channel.invokeMethod("pipPlaying", arguments: ["playing": playing])
+    }
+  }
+
   func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
     // PiP 真正启动的统一回调点：系统自动启动与手动 startAuto 都会经过这里。
     // 预热阶段是静音渲染的，这里统一取消静音，确保画中画有声音。
     player?.isMuted = false
+    startRateObservation()
     channel.invokeMethod("state", arguments: ["active": true])
   }
 
   func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-    // 返回全屏时把系统 PiP（独立 AVPlayer）的进度和播放状态回传，Flutter 侧据此
-    // seek 到正确位置，并延续画中画最后的播放/暂停状态：
-    // 画中画在播 → 返回后继续播；画中画暂停 → 返回后保持暂停。
-    // 注意必须在 cleanup()（内部会 pause player）之前读取 rate。
+    // 返回全屏时把系统 PiP（独立 AVPlayer）的进度和最后播放状态回传，Flutter 侧
+    // 据此 seek 并延续画中画的播放/暂停：在播→续播，暂停→保持暂停。
+    // playing 取 KVO 持续跟踪的 pipPlaying，而非此刻 rate——系统停止 PiP 时
+    // 可能已把 rate 归零，当场读取会误判为「已暂停」，导致返回后不续播。
     let seconds = player?.currentTime().seconds ?? 0
     let positionMs = seconds.isFinite ? seconds * 1000 : 0
-    let playing = (player?.rate ?? 0) > 0
-    diag("画中画结束 playing=\(playing) positionMs=\(Int(positionMs))")
     channel.invokeMethod("state", arguments: [
       "active": false,
       "positionMs": positionMs,
-      "playing": playing,
+      "playing": pipPlaying,
     ])
     cleanup()
   }
