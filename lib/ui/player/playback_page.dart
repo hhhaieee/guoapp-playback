@@ -197,7 +197,8 @@ class _PlaybackPageState extends State<PlaybackPage> {
     if (mounted) setState(() {});
   }
 
-  void _iosPipState(bool active, {String? error, double? positionMs}) {
+  void _iosPipState(bool active,
+      {String? error, double? positionMs, bool? playing}) {
     if (!mounted) return;
     final foreground = playerVisible(WidgetsBinding.instance.lifecycleState);
     // 画中画期间保留系统媒体控制，控制中心/线控的切集命令才能送达 App。
@@ -211,14 +212,24 @@ class _PlaybackPageState extends State<PlaybackPage> {
       _session.setForeground(false);
       if (_session.player.state.playing) unawaited(_session.player.pause());
     } else {
-      // PiP 结束：先把 PiP 的进度同步回本地播放器，再按前台状态恢复播放。
+      // PiP 结束：先把 PiP 的进度同步回本地播放器，延续画中画最后的播放状态。
+      // playing 来自原生 AVPlayer 当时的 rate（小窗播放/暂停按钮直接控制 rate）：
+      // 画中画在播 → 返回后恢复播放；画中画暂停 → 保持暂停，不自动唤醒。
+      DiaryService.add(
+        '[PiP诊断] 返回播放器 playing=$playing foreground=$foreground positionMs=$positionMs',
+      );
+      Future<void> restore() async {
+        _session.setForeground(foreground);
+        if (foreground && playing == true) _session.resumeFromPip();
+      }
+
       if (foreground && positionMs != null && positionMs > 0) {
         unawaited(() async {
           await _session.seekTo(Duration(milliseconds: positionMs.round()));
-          if (mounted) _session.setForeground(foreground);
+          if (mounted) await restore();
         }());
       } else {
-        _session.setForeground(foreground);
+        restore();
       }
     }
     if (!active && error != null && error.isNotEmpty) {
