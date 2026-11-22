@@ -18,7 +18,7 @@ class IosPictureInPicture extends ChangeNotifier {
 
   void Function(String action)? onAction;
   void Function(bool active, {String? error, double? positionMs, bool? playing})? onState;
-  void Function(String message)? onDiag;
+  void Function(bool playing)? onPipPlaying;
   bool _supported = false;
   bool _active = false;
 
@@ -36,8 +36,9 @@ class IosPictureInPicture extends ChangeNotifier {
 
   Future<dynamic> _handle(MethodCall call) async {
     switch (call.method) {
-      case 'diag':
-        onDiag?.call(call.arguments as String? ?? '');
+      case 'pipPlaying':
+        final args = call.arguments as Map? ?? const {};
+        onPipPlaying?.call(args['playing'] == true);
       case 'state':
         final args = call.arguments as Map? ?? const {};
         final active = args['active'] == true;
