@@ -382,6 +382,8 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
           self.playerItem = item
           self.preparedUrl = urlString
           player.replaceCurrentItem(with: item)
+          // 切集换源后确保出声并真正播放（PiP 中换源同样需要 rate>0 才渲染新一集）。
+          player.isMuted = false
           item.seek(to: CMTime(value: Int64(position), timescale: 1000),
                     toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             DispatchQueue.main.async {
@@ -429,6 +431,8 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
       return
     }
     prepareAudio()
+    // 预热时是静音渲染的，真正进入 PiP 前必须取消静音，否则画中画没声音。
+    player.isMuted = false
     player.rate = Float(lastRate)
     startPictureInPicture()
   }
@@ -488,7 +492,10 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     if #available(iOS 15.0, *),
        let controller = AVPictureInPictureController(playerLayer: layer) {
       controller.delegate = self
-      controller.canStartPictureInPictureAutomaticallyFromInline = false
+      // 双保险：交给系统在离开 App 时自动启动 PiP（Apple 官方机制，时机最可靠），
+      // 同时保留 willResignActive 的手动 startAuto 作为兜底。两者都以
+      // isPictureInPictureActive 去重，不会重复启动。
+      controller.canStartPictureInPictureAutomaticallyFromInline = true
       self.pipController = controller
     } else {
       channel.invokeMethod("state", arguments: ["active": false, "error": "无法创建画中画控制器"])
@@ -531,11 +538,12 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     item.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
       DispatchQueue.main.async {
         guard let self else { return }
-        // 预热模式保持静音待命（rate=0），图层照样会渲染出首帧；
-        // 只有真正启动 PiP 时才设速，避免预热期间和本地播放器同时出声。
-        if !autoplay {
-          newPlayer.rate = 0
-        }
+        // 关键：AVPlayer 必须以 rate>0 真正播放，AVPlayerLayer 才会渲染出首帧，
+        // isReadyForDisplay 才会变 true，PiP 才可能启动。rate=0 永远不会渲染，
+        // 这正是上一版「离开后画中画完全不出现」的根因。
+        // 预热模式（autoplay=false）改用 isMuted 静音：既渲染画面，又不与本地播放器双重出声。
+        newPlayer.rate = Float(self.lastRate)
+        newPlayer.isMuted = !autoplay
         self.waitForDisplayThenStart(autoplay: autoplay)
       }
     }
@@ -685,6 +693,9 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
 
   // MARK: AVPictureInPictureControllerDelegate
   func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+    // PiP 真正启动的统一回调点：系统自动启动与手动 startAuto 都会经过这里。
+    // 预热阶段是静音渲染的，这里统一取消静音，确保画中画有声音。
+    player?.isMuted = false
     channel.invokeMethod("state", arguments: ["active": true])
   }
 

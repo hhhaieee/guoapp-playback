@@ -1531,7 +1531,13 @@ class PlaybackSession extends ChangeNotifier {
 
   void setForeground(bool visible) {
     if (_closed) return;
+    final wasVisible = _visible;
     _setVisible(visible);
+    // 播放器处于锁屏（画面锁定）状态时离开 App，返回后自动解锁。
+    // 用「不可见 → 可见」的边沿触发，避免前台生命周期抖动（如弹系统面板）
+    // 误解锁。setLocked(false) 只更新锁定态、不会触发播放，故不影响
+    // 「暂停后离开返回仍保持暂停」。
+    if (visible && !wasVisible && _locked) setLocked(false);
     final foreground = visible || _backgroundPlayback;
     if (_foreground == foreground) return;
     DiaryService.add(
