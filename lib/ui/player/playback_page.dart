@@ -70,6 +70,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
     _pip.onAction = _action;
     _iosPip.onState = _iosPipState;
     _iosPip.onAction = _action;
+    _iosPip.onDiag = (msg) => DiaryService.add('[PiP原生] $msg');
     _iosPip.addListener(_iosPipChanged);
     _bind();
     VolumeKeysHud.instance.setEnabled(
@@ -85,6 +86,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
     if (_pip.onAction == _action) _pip.onAction = null;
     if (_iosPip.onAction == _action) _iosPip.onAction = null;
     if (_iosPip.onState == _iosPipState) _iosPip.onState = null;
+    _iosPip.onDiag = null;
     _iosPip.removeListener(_iosPipChanged);
     unawaited(_iosPip.disarmAuto());
     _pip.clear();

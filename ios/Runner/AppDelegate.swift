@@ -365,26 +365,23 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   /// 画中画播放中切集。PiP 激活期间直接 replaceCurrentItem 不会刷新画面（PiP 仍
   /// 循环旧帧），因此改为：停掉 PiP → 复用已挂载的 player/layer 换 item → 重启 PiP。
   /// 复用现有 layer 是关键：切集时 App 多在后台，重新 prepare 会拿不到前台窗口。
+  /// 原生诊断日志回传 Dart 的 DiaryService，打通原生侧盲区。
+  private func diag(_ msg: String) {
+    NSLog("[PiPDiag] \(msg)")
+    channel.invokeMethod("diag", arguments: msg)
+  }
+
+  /// 画中画播放中切集：直接在现有 AVPlayer 上替换 item，不停止画中画。
+  /// 关键：PiP 激活时 App 多在后台，iOS 不允许在后台重新 start PiP，所以
+  /// 「stop→重启」方案停了就起不来。PiP 绑定的是同一个 player，替换 item
+  /// 后会随新集渲染。此前「换源不生效」的真正原因是切集命令没到达（媒体控制
+  /// 被释放），并非直接换 item 不行——该方案现在才第一次真正被执行。
   private func switchSource(_ args: [String: Any]) {
     guard AVPictureInPictureController.isPictureInPictureSupported(),
           args["url"] as? String != nil else { return }
-    // 换源重启进行中（含 stop 已发出的窗口期）：只更新目标集，把快速连点合并到最新一集。
-    if switchingSource {
-      pendingSourceSwitch = args
-      return
-    }
-    if pipController?.isPictureInPictureActive == true {
-      switchingSource = true
-      pendingSourceSwitch = args
-      pipController?.stopPictureInPicture()
-      // 兜底：极少数情况下系统不回调 didStop，1.5 秒后强制继续，避免卡死在停播态。
-      DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-        self?.finishSourceSwitch()
-      }
-    } else {
-      // PiP 未激活（前台预热/未启动）：直接换 item，不需重启 PiP。
-      replaceItem(args, restartPip: false)
-    }
+    diag("switchSource 进入 pipActive=\(pipController?.isPictureInPictureActive ?? false)")
+    // replaceItem 内部会 invalidate 上一次未就绪的 KVO，快速连点自动收敛到最后一次。
+    replaceItem(args, restartPip: false)
   }
 
   /// 完成换源：用最新目标集换 item 并重启 PiP。由 didStop 回调或超时兜底触发。
@@ -401,6 +398,7 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     guard let urlString = args["url"] as? String,
           let url = URL(string: urlString),
           let player else { return }
+    diag("replaceItem 开始 url长度=\(urlString.count) restartPip=\(restartPip)")
     var options: [String: Any] = [:]
     if let headers = args["headers"] as? [String: String], !headers.isEmpty {
       options["AVURLAssetHTTPHeaderFieldsKey"] = headers
@@ -416,6 +414,7 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
         guard let self else { return }
         switch observed.status {
         case .readyToPlay:
+          self.diag("新集 readyToPlay，replaceCurrentItem")
           self.kvoToken = nil
           self.playerItem = item
           self.preparedUrl = urlString
@@ -427,12 +426,14 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
             DispatchQueue.main.async {
               guard let self else { return }
               player.rate = Float(self.lastRate)
+              self.diag("新集已 seek 并 rate=\(self.lastRate) 播放，pipActive=\(self.pipController?.isPictureInPictureActive ?? false)")
               if restartPip { self.startPictureInPicture() }
             }
           }
         case .failed:
           self.kvoToken = nil
           let message = observed.error?.localizedDescription ?? "新一集加载失败"
+          self.diag("新集加载失败: \(message)")
           self.channel.invokeMethod("state", arguments: ["active": false, "error": message])
         default:
           break
