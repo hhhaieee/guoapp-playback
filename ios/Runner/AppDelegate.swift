@@ -424,6 +424,8 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
           let url = URL(string: urlString),
           let player else { return }
     diag("replaceItem 开始 url长度=\(urlString.count) restartPip=\(restartPip)")
+    kvoToken?.invalidate()
+    kvoToken = nil
     var options: [String: Any] = [:]
     if let headers = args["headers"] as? [String: String], !headers.isEmpty {
       options["AVURLAssetHTTPHeaderFieldsKey"] = headers
@@ -433,36 +435,51 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     let rate = (args["rate"] as? NSNumber)?.doubleValue ?? 1
     lastRate = rate > 0 ? rate : 1
     let position = (args["positionMs"] as? NSNumber)?.doubleValue ?? 0
-    kvoToken?.invalidate()
-    kvoToken = item.observe(\.status, options: [.new]) { [weak self] observed, _ in
-      DispatchQueue.main.async {
-        guard let self else { return }
-        switch observed.status {
-        case .readyToPlay:
-          self.diag("新集 readyToPlay，replaceCurrentItem")
-          self.kvoToken = nil
-          self.playerItem = item
-          self.preparedUrl = urlString
-          self.observeEnd(of: item)
-          player.replaceCurrentItem(with: item)
-          // PiP 中换源需取消静音并以 rate>0 播放，新一集才会真正渲染出画面。
-          player.isMuted = false
-          item.seek(to: CMTime(value: Int64(position), timescale: 1000),
-                    toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-            DispatchQueue.main.async {
-              guard let self else { return }
-              player.rate = Float(self.lastRate)
-              self.diag("新集已 seek 并 rate=\(self.lastRate) 播放，pipActive=\(self.pipController?.isPictureInPictureActive ?? false)")
-              if restartPip { self.startPictureInPicture() }
-            }
+
+    // 关键修复：AVPlayerItem 必须先交给 AVPlayer 才会开始加载资源、status 才可能
+    // 变成 .readyToPlay。之前先等 .readyToPlay 再 replaceCurrentItem，孤立的 item
+    // 永远是 .unknown，KVO 回调永不触发 —— 这正是「换源卡住、一直播旧集」的根因。
+    self.playerItem = item
+    self.preparedUrl = urlString
+    self.observeEnd(of: item)
+    player.replaceCurrentItem(with: item)
+    player.isMuted = false
+
+    let startPlayback = { [weak self] in
+      guard let self else { return }
+      item.seek(to: CMTime(value: Int64(position), timescale: 1000),
+                toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+        DispatchQueue.main.async {
+          guard let self else { return }
+          player.rate = Float(self.lastRate)
+          self.diag("新集已 seek 并 rate=\(self.lastRate) 播放，pipActive=\(self.pipController?.isPictureInPictureActive ?? false)")
+          if restartPip { self.startPictureInPicture() }
+        }
+      }
+    }
+
+    // 与 prepare 一致：先查一次当前状态，避免已是 readyToPlay 却因 KVO 只监听
+    // 后续变化而漏掉；未就绪才挂 KVO 等待。
+    if item.status == .readyToPlay {
+      self.diag("新集 replace 后已就绪，直接 seek 播放")
+      startPlayback()
+    } else {
+      kvoToken = item.observe(\.status, options: [.new]) { [weak self] observed, _ in
+        DispatchQueue.main.async {
+          guard let self else { return }
+          switch observed.status {
+          case .readyToPlay:
+            self.kvoToken = nil
+            self.diag("新集 readyToPlay")
+            startPlayback()
+          case .failed:
+            self.kvoToken = nil
+            let message = observed.error?.localizedDescription ?? "新一集加载失败"
+            self.diag("新集加载失败: \(message)")
+            self.channel.invokeMethod("state", arguments: ["active": false, "error": message])
+          default:
+            break
           }
-        case .failed:
-          self.kvoToken = nil
-          let message = observed.error?.localizedDescription ?? "新一集加载失败"
-          self.diag("新集加载失败: \(message)")
-          self.channel.invokeMethod("state", arguments: ["active": false, "error": message])
-        default:
-          break
         }
       }
     }
