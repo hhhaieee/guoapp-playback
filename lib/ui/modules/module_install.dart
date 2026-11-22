@@ -35,6 +35,7 @@ Future<String> installIndexedModules(
   LocalStore store,
   List<ModuleIndexEntry> entries, {
   bool enable = true,
+  bool baibao = false,
 }) async {
   final failures = <String>[];
   final notices = <String>[];
@@ -46,6 +47,7 @@ Future<String> installIndexedModules(
         await repository.prepareModule(
           indexed: entry.id,
           bundled: entry.bundled,
+          baibao: baibao,
         ),
         enable: enable,
       );

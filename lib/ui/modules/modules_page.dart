@@ -224,6 +224,23 @@ class _ModulesPageState extends State<ModulesPage>
     );
   }
 
+  Future<void> _installAllBaibao(List<ModuleIndexEntry> entries) async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (_) => BatchInstallDialog(
+        entries: entries,
+        title: '安装 ${entries.length} 个插件？',
+        message: '这些插件会逐个安装并启用。',
+      ),
+    );
+    if (accepted != true) return;
+    await _run(
+      () async => _show(
+        await installIndexedModules(_repository, _store, entries, baibao: true),
+      ),
+    );
+  }
+
   Future<void> _installFile() => _run(() async {
     final file = await FilePicker.pickFile(
       type: FileType.custom,
@@ -416,19 +433,20 @@ class _ModulesPageState extends State<ModulesPage>
         latest[entry.id] = entry;
       }
     }
-    Widget card(SourceModule module, {bool dragHandle = false}) => _InstalledCard(
-      module: module,
-      update: _updateFor(module, latest[module.id]),
-      enabled: _store.sourceEnabled(module.id),
-      onToggle: _toggleFor(module),
-      admin: _store.profile.admin,
-      dragHandle: dragHandle,
-      onDetails: AppScope.of(context).television
-          ? () => _menu(module, _updateFor(module, latest[module.id]))
-          : () => _details(module),
-      onUpdate: enabled ? () => _installIndexed(latest[module.id]!) : null,
-      onUninstall: enabled ? () => _uninstall(module) : null,
-    );
+    Widget card(SourceModule module, {bool dragHandle = false}) =>
+        _InstalledCard(
+          module: module,
+          update: _updateFor(module, latest[module.id]),
+          enabled: _store.sourceEnabled(module.id),
+          onToggle: _toggleFor(module),
+          admin: _store.profile.admin,
+          dragHandle: dragHandle,
+          onDetails: AppScope.of(context).television
+              ? () => _menu(module, _updateFor(module, latest[module.id]))
+              : () => _details(module),
+          onUpdate: enabled ? () => _installIndexed(latest[module.id]!) : null,
+          onUninstall: enabled ? () => _uninstall(module) : null,
+        );
     final sortable =
         modules != null &&
         modules.length > 1 &&
@@ -513,16 +531,14 @@ class _ModulesPageState extends State<ModulesPage>
     final installed = {for (final module in _modules ?? const []) module.id};
     // 百宝袋只展示每个插件的最新版本。
     final latest = <String, ModuleIndexEntry>{};
-    for (final entry
-        in _baibaoIndex?.entries ?? const <ModuleIndexEntry>[]) {
+    for (final entry in _baibaoIndex?.entries ?? const <ModuleIndexEntry>[]) {
       final current = latest[entry.id];
       if (current == null ||
           isNewerModuleVersion(entry.version, current.version)) {
         latest[entry.id] = entry;
       }
     }
-    final listed = latest.values.toList()
-      ..sort((a, b) => a.id.compareTo(b.id));
+    final listed = latest.values.toList()..sort((a, b) => a.id.compareTo(b.id));
     final entries = [
       for (final entry in listed)
         if (!installed.contains(entry.id)) entry,
@@ -530,6 +546,18 @@ class _ModulesPageState extends State<ModulesPage>
     final warning = _baibaoIndex?.warning ?? '';
     return _list([
       if (warning.isNotEmpty) _Note(warning),
+      if (enabled && entries.isNotEmpty)
+        SettingsCard(
+          children: [
+            SettingsTile(
+              icon: Icons.download_rounded,
+              title: '安装全部插件',
+              subtitle: '百宝袋里还有 ${entries.length} 个未安装',
+              enabled: enabled,
+              onTap: enabled ? () => _installAllBaibao(entries) : null,
+            ),
+          ],
+        ),
       if (_baibaoIndexError case final error?)
         _Note(error)
       else if (_baibaoIndex == null)
@@ -872,8 +900,7 @@ class _ModulesPageState extends State<ModulesPage>
       _store.unlockAdult();
     } else {
       // 关闭锁：锁定态需先验证，解锁态直接关闭；关闭后恢复解锁。
-      if (_store.adultLocked &&
-          !await BiometricAuth.authenticate('关闭隐藏片源锁')) {
+      if (_store.adultLocked && !await BiometricAuth.authenticate('关闭隐藏片源锁')) {
         return;
       }
       await _store.setAdultLockEnabled(false);

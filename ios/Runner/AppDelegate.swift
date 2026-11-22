@@ -258,6 +258,11 @@ final class MediaControls {
     resumeAfterInterruption = false
     let center = MPNowPlayingInfoCenter.default()
     center.nowPlayingInfo = nil
+    // 离开播放器后切回不抢占的 ambient 会话，避免 playback 会话在无播放时被系统挂起，
+    // 导致非播放页面物理音量键不再改变 outputVolume、音量图标不显示。
+    let session = AVAudioSession.sharedInstance()
+    try? session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
+    try? session.setActive(true)
   }
 }
 
@@ -819,6 +824,12 @@ final class VolumeKeyWatcher: NSObject {
     // 关键：监听 AVSystemController_SystemVolumeDidChangeNotification 私有通知前，
     // 必须先开启远程控制事件接收，否则该通知在部分设备/系统上收不到或飘忽不定。
     UIApplication.shared.beginReceivingRemoteControlEvents()
+    // 全局激活一个不抢占的音频会话：否则停留在首页等非播放页面时，
+    // 物理音量键改变的是铃声音量而非 outputVolume，轮询与通知都读不到变化，
+    // 导致自定义音量图标不显示。.ambient 会与其他 App 音频混音、不中断播放。
+    let session = AVAudioSession.sharedInstance()
+    try? session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
+    try? session.setActive(true)
     // 物理音量键：只要收到系统音量变化通知就弹图标，不再依赖 reason 字段
     // （音量到最大/最小后继续按同方向时，reason 可能不再是 ExplicitVolumeChange）。
     volumeToken = NotificationCenter.default.addObserver(
