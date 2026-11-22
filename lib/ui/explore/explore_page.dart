@@ -50,6 +50,7 @@ class ExplorePageState extends State<ExplorePage> {
   final _search = TextEditingController();
   final _tabsKey = GlobalKey();
   final _refreshKey = GlobalKey<PullRefreshState>();
+  final _dialSpin = ValueNotifier<double>(0);
   final _pages = <String, _CategoryPageState>{};
   PageController? _pager;
   String? _pagerSource;
@@ -72,6 +73,7 @@ class ExplorePageState extends State<ExplorePage> {
     _pager?.dispose();
     _scroll.dispose();
     _search.dispose();
+    _dialSpin.dispose();
     super.dispose();
   }
 
@@ -207,6 +209,7 @@ class ExplorePageState extends State<ExplorePage> {
           pager: _paged ? _pagerFor(explore) : null,
           onSelected: _selectTab,
           onShowAll: _pickCategory,
+          spin: _dialSpin,
         ),
       );
       return Scaffold(
@@ -254,6 +257,7 @@ class ExplorePageState extends State<ExplorePage> {
                     },
                     onMoreSources: () =>
                         pickSource(context, widget.store),
+                    spin: _dialSpin,
                     leading: [
                       if (widget.store.blurCoversButton)
                         if (CoverBlurScope.of(context) case final blur?)

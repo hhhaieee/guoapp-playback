@@ -806,15 +806,14 @@ class _ModulesPageState extends State<ModulesPage>
         : Scaffold(
             appBar: AppBar(
               title: const Text('模块'),
-              actions: [?_refreshButton(), const SizedBox(width: 8)],
+              actions: [
+                _installedStats(),
+                ?_refreshButton(),
+                const SizedBox(width: 8),
+              ],
               bottom: PreferredSize(
                 preferredSize: const Size.fromHeight(48),
-                child: Row(
-                  children: [
-                    Expanded(child: _tabBar()),
-                    _installedStats(),
-                  ],
-                ),
+                child: _tabBar(),
               ),
             ),
             body: _body(),
@@ -1682,7 +1681,7 @@ class _StatsPanel extends StatelessWidget {
       ],
     );
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 0, 12, 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
         decoration: BoxDecoration(

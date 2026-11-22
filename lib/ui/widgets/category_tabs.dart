@@ -14,12 +14,14 @@ class CategoryTabs<T> extends StatefulWidget {
     required this.onSelected,
     this.onShowAll,
     this.pager,
+    this.spin,
   });
   final List<ChoiceOption<T>> options;
   final T selected;
   final PageController? pager;
   final ValueChanged<T> onSelected;
   final void Function(BuildContext anchor)? onShowAll;
+  final ValueNotifier<double>? spin;
 
   @override
   State<CategoryTabs<T>> createState() => _CategoryTabsState<T>();
@@ -32,6 +34,15 @@ class _CategoryTabsState<T> extends State<CategoryTabs<T>> {
   bool _overflows = false;
   Rect? _indicator;
   bool _sliding = false;
+  static final _idleSpin = ValueNotifier<double>(0);
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_spun);
+  }
+
+  void _spun() => widget.spin?.value = _scroll.offset;
 
   @override
   void didUpdateWidget(covariant CategoryTabs<T> oldWidget) {
@@ -43,6 +54,7 @@ class _CategoryTabsState<T> extends State<CategoryTabs<T>> {
 
   @override
   void dispose() {
+    _scroll.removeListener(_spun);
     _scroll.dispose();
     super.dispose();
   }
@@ -88,9 +100,9 @@ class _CategoryTabsState<T> extends State<CategoryTabs<T>> {
     final form = AppScope.formFactorOf(context);
     final colors = Theme.of(context).colorScheme;
     final (height, fontSize, padding, fade) = switch (form) {
-      FormFactor.phone => (48.0, 15.0, 12.0, 32.0),
-      FormFactor.pad || FormFactor.window => (48.0, 14.0, 14.0, 40.0),
-      FormFactor.television => (44.0, 16.0, 16.0, 48.0),
+      FormFactor.phone => (48.0, 15.0, 12.0, 10.0),
+      FormFactor.pad || FormFactor.window => (48.0, 14.0, 14.0, 12.0),
+      FormFactor.television => (44.0, 16.0, 16.0, 14.0),
     };
     _keys.removeWhere(
       (value, _) => !widget.options.any((option) => option.value == value),
@@ -102,10 +114,16 @@ class _CategoryTabsState<T> extends State<CategoryTabs<T>> {
       final onShowAll? when _overflows => Padding(
         padding: EdgeInsets.only(right: television ? 10 : 0),
         child: Builder(
-          builder: (anchor) => BarButton(
-            icon: Icons.grid_view_rounded,
-            tooltip: '全部分类',
-            onPressed: () => onShowAll(anchor),
+          builder: (anchor) => ValueListenableBuilder<double>(
+            valueListenable: widget.spin ?? _idleSpin,
+            builder: (context, value, _) => Transform.rotate(
+              angle: value / 40,
+              child: BarButton(
+                icon: Icons.grid_view_rounded,
+                tooltip: '全部分类',
+                onPressed: () => onShowAll(anchor),
+              ),
+            ),
           ),
         ),
       ),
@@ -209,8 +227,10 @@ class _CategoryTabsState<T> extends State<CategoryTabs<T>> {
                           gradient: LinearGradient(
                             colors: [
                               colors.surface.withValues(alpha: 0),
+                              colors.surface.withValues(alpha: 0),
                               colors.surface,
                             ],
+                            stops: const [0, 0.55, 1],
                           ),
                         ),
                       ),

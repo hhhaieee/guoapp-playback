@@ -24,6 +24,7 @@ class SourceBar extends StatelessWidget {
     this.onSelectSource,
     this.onMoreSources,
     this.readOnlySearch = false,
+    this.spin,
   });
   final List<Widget> leading;
   final String source;
@@ -44,6 +45,11 @@ class SourceBar extends StatelessWidget {
 
   /// 手机首页搜索框只读：点击跳转到搜索页，不再原地输入。
   final bool readOnlySearch;
+
+  /// 分类栏横滑时驱动「更多站源」球体同步旋转。
+  final ValueNotifier<double>? spin;
+
+  static final _idleSpin = ValueNotifier<double>(0);
 
   @override
   Widget build(BuildContext context) {
@@ -125,11 +131,62 @@ class SourceBar extends StatelessWidget {
         child: Row(
           children: [
             Expanded(
-              child: _SourceChips(
-                sources: sources,
-                currentSourceId: currentSourceId,
-                onSelectSource: onSelectSource!,
-                onMore: onMoreSources ?? () => onSwitchSource(context),
+              child: Stack(
+                children: [
+                  _SourceChips(
+                    sources: sources,
+                    currentSourceId: currentSourceId,
+                    onSelectSource: onSelectSource!,
+                  ),
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: 10,
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              colors.surface.withValues(alpha: 0),
+                              colors.surface.withValues(alpha: 0),
+                              colors.surface,
+                            ],
+                            stops: const [0, 0.55, 1],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            ValueListenableBuilder<double>(
+              valueListenable: spin ?? _idleSpin,
+              builder: (context, value, _) => Transform.rotate(
+                angle: value / 40,
+                child: SizedBox(
+                  width: 40,
+                  height: 34,
+                  child: Tooltip(
+                    message: '更多站源',
+                    child: ClipOval(
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: onMoreSources ?? () => onSwitchSource(context),
+                          child: Image.asset(
+                            'assets/images/star_ball.png',
+                            width: 40,
+                            height: 34,
+                            fit: BoxFit.cover,
+                            filterQuality: FilterQuality.high,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
             ...leading,
@@ -147,12 +204,10 @@ class _SourceChips extends StatefulWidget {
     required this.sources,
     required this.currentSourceId,
     required this.onSelectSource,
-    required this.onMore,
   });
   final List<SourceSite> sources;
   final String currentSourceId;
   final ValueChanged<String> onSelectSource;
-  final VoidCallback onMore;
 
   @override
   State<_SourceChips> createState() => _SourceChipsState();
@@ -203,22 +258,9 @@ class _SourceChipsState extends State<_SourceChips> {
       controller: _controller,
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 2),
-      itemCount: widget.sources.length + 1,
+      itemCount: widget.sources.length,
       separatorBuilder: (_, _) => const SizedBox(width: 8),
       itemBuilder: (context, index) {
-        if (index == widget.sources.length) {
-          return SizedBox(
-            width: 40,
-            height: 34,
-            child: IconButton.filledTonal(
-              onPressed: widget.onMore,
-              icon: const Icon(Icons.more_horiz_rounded, size: 20),
-              tooltip: '更多站源',
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-            ),
-          );
-        }
         final site = widget.sources[index];
         final selected = site.id == widget.currentSourceId;
         return Container(
