@@ -74,7 +74,6 @@ class _AudioPlayerPageState extends State<AudioPlayerPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _session.setForeground(playerVisible(state));
-    if (state == AppLifecycleState.inactive) _session.onInactive();
   }
 
   void _bind() {

@@ -248,10 +248,6 @@ class PlaybackSession extends ChangeNotifier {
   bool _acceptErrors = false;
   bool _foreground = true;
   bool _visible = true;
-  // 记录「是否真正离开过前台（锁屏/切后台）」：锁屏瞬间 iOS 会先进入
-  // inactive（仍判为可见），若不加区分会在锁屏那一刻误触发恢复播放。
-  // 只有经历过不可见状态后回到前台，才执行「暂停后锁屏解锁自动恢复播放」。
-  bool _wasHidden = false;
   bool _playIntent = true;
   bool _pendingError = false;
   bool _boosting = false;
@@ -1364,6 +1360,9 @@ class PlaybackSession extends ChangeNotifier {
   void setLocked(bool locked) {
     if (_locked == locked) return;
     _locked = locked;
+    // 暂停状态下点播放器「锁屏」按钮 → 联动解除暂停、开始播放。
+    // 这是用户主动触发的联动，与 iOS 系统锁屏 / 切后台的生命周期无关。
+    if (locked && !_playIntent && _usable && ready) _resume();
     _notify();
   }
 
@@ -1534,18 +1533,7 @@ class PlaybackSession extends ChangeNotifier {
     if (_closed) return;
     _setVisible(visible);
     final foreground = visible || _backgroundPlayback;
-    if (_foreground == foreground) {
-      // 后台播放开启时，锁屏不会切换 foreground，但仍要处理「回到前台恢复播放」，
-      // 否则用户手动暂停后锁屏再解锁会一直停在暂停态。
-      if (!visible) {
-        // 锁屏/切后台的「暂停即续播」已由 onInactive() 在 inactive 阶段统一触发，
-        // 这里不再重复触发，避免 PiP 启动等「主动隐藏」场景误把暂停的视频拉起来播放。
-        _wasHidden = true;
-      } else {
-        _resumeAfterHidden();
-      }
-      return;
-    }
+    if (_foreground == foreground) return;
     DiaryService.add(
       foreground ? '[Play] 应用回到前台' : '[Play] 应用不可见，暂停播放',
     );
@@ -1553,7 +1541,6 @@ class PlaybackSession extends ChangeNotifier {
     _health.reset();
     _sync();
     if (!foreground) {
-      _wasHidden = true;
       endBoost();
       _playIntent = false;
       _pausedSince = DateTime.now();
@@ -1566,27 +1553,9 @@ class PlaybackSession extends ChangeNotifier {
     } else {
       _holdNetworkSpeed();
       if (_pendingError) _queueRecovery('foreground_pending_error');
-      _resumeAfterHidden();
+      // 回到前台不再自动恢复播放：尊重用户离开前的暂停状态。
+      // 「暂停即播」只由用户主动点播放器锁屏按钮（setLocked）触发。
     }
-  }
-
-  /// 应用进入 inactive（锁屏/来电等）的瞬间立即开始后台播放。
-  /// 用户诉求：只要锁屏，哪怕当前是暂停状态也马上播放（锁屏即播放联动）。
-  /// 用 inactive 而不是 paused 作为触发点，消除「黑屏后才有声音」的延迟。
-  void onInactive() {
-    if (_closed || !_backgroundPlayback || !_usable || !ready) return;
-    if (player.state.playing && _playIntent) return;
-    _resume();
-  }
-
-  /// 暂停后锁屏/切后台，回到前台时恢复播放（横竖屏一致）。
-  /// 只有「确实离开过前台」（锁屏/切后台）后才恢复，避免锁屏瞬间的
-  /// inactive 状态（仍判为可见）误触发恢复播放。
-  void _resumeAfterHidden() {
-    if (_playIntent || player.state.playing) return;
-    if (!_wasHidden) return;
-    _wasHidden = false;
-    _resume();
   }
 
   /// 显式恢复播放（幂等）。不再用 togglePlayback 的「翻转」语义，
