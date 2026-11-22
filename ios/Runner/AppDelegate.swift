@@ -792,17 +792,19 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   }
 
   func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-    // 切集导致的停止：不回传结束状态（否则 Dart 会把本地播放器恢复并把进度
-    // seek 回旧集），直接用新集重建并重启 PiP。
-    if switchingSource {
-      finishSourceSwitch()
-      return
-    }
-    // 返回全屏时把系统 PiP（独立 AVPlayer）的当前进度回传，Flutter 侧据此 seek，
-    // 避免回到全屏后播放进度仍停留在进入 PiP 之前的位置。
+    // 返回全屏时把系统 PiP（独立 AVPlayer）的进度和播放状态回传，Flutter 侧据此
+    // seek 到正确位置，并延续画中画最后的播放/暂停状态：
+    // 画中画在播 → 返回后继续播；画中画暂停 → 返回后保持暂停。
+    // 注意必须在 cleanup()（内部会 pause player）之前读取 rate。
     let seconds = player?.currentTime().seconds ?? 0
     let positionMs = seconds.isFinite ? seconds * 1000 : 0
-    channel.invokeMethod("state", arguments: ["active": false, "positionMs": positionMs])
+    let playing = (player?.rate ?? 0) > 0
+    diag("画中画结束 playing=\(playing) positionMs=\(Int(positionMs))")
+    channel.invokeMethod("state", arguments: [
+      "active": false,
+      "positionMs": positionMs,
+      "playing": playing,
+    ])
     cleanup()
   }
 
