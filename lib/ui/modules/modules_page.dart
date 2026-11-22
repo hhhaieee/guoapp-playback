@@ -603,6 +603,21 @@ class _ModulesPageState extends State<ModulesPage>
     ),
   );
 
+  /// 顶部标签栏右侧的实时统计：仅统计「已安装」分类。
+  /// 数据是 [_modules] 与 [_store] 的派生值，开关/卸载后页面 rebuild 即自动刷新。
+  Widget _installedStats() {
+    final modules = _modules ?? const <SourceModule>[];
+    var started = 0;
+    for (final module in modules) {
+      if (_store.sourceEnabled(module.id)) started++;
+    }
+    return _StatsPanel(
+      total: modules.length,
+      started: started,
+      stopped: modules.length - started,
+    );
+  }
+
   Widget _body() => Column(
     children: [
       if (_busy) const LinearProgressIndicator(),
@@ -794,7 +809,12 @@ class _ModulesPageState extends State<ModulesPage>
               actions: [?_refreshButton(), const SizedBox(width: 8)],
               bottom: PreferredSize(
                 preferredSize: const Size.fromHeight(48),
-                child: _tabBar(),
+                child: Row(
+                  children: [
+                    Expanded(child: _tabBar()),
+                    _installedStats(),
+                  ],
+                ),
               ),
             ),
             body: _body(),
@@ -1622,6 +1642,75 @@ class _Note extends StatelessWidget {
       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
         color: Theme.of(context).colorScheme.onSurfaceVariant,
         height: 1.6,
+      ),
+    ),
+  );
+}
+
+/// 已安装模块的实时统计面板：总数 / 已启动 / 未启动。
+class _StatsPanel extends StatelessWidget {
+  const _StatsPanel({
+    required this.total,
+    required this.started,
+    required this.stopped,
+  });
+  final int total;
+  final int started;
+  final int stopped;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final figure = theme.textTheme.titleMedium?.copyWith(
+      fontSize: 16,
+      fontWeight: FontWeight.w800,
+      height: 1.1,
+    );
+    final caption = theme.textTheme.labelSmall?.copyWith(
+      fontSize: 10,
+      color: colors.onSurfaceVariant,
+      height: 1.2,
+    );
+    Widget cell(int value, String label, Color color) => Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Text('$value', style: figure?.copyWith(color: color)),
+        const SizedBox(height: 1),
+        Text(label, style: caption),
+      ],
+    );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 0, 12, 6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          color: colors.secondaryContainer.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            cell(total, '已安装', colors.primary),
+            _divider(colors),
+            cell(started, '已启动', colors.tertiary),
+            _divider(colors),
+            cell(stopped, '未启动', colors.onSurfaceVariant),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _divider(ColorScheme colors) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 10),
+    child: SizedBox(
+      height: 22,
+      child: VerticalDivider(
+        width: 1,
+        thickness: 1,
+        color: colors.outlineVariant.withValues(alpha: 0.7),
       ),
     ),
   );
