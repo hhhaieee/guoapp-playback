@@ -90,20 +90,6 @@ class MinePage extends StatelessWidget {
         ),
       GroupCard(
         children: [
-          SettingsTile(
-            icon: Icons.download_rounded,
-            title: '下载',
-            onTap: () => _openDownloads(context),
-          ),
-          SettingsTile(
-            icon: Icons.extension_outlined,
-            title: '模块',
-            onTap: () => _openModules(context),
-          ),
-        ],
-      ),
-      GroupCard(
-        children: [
           for (final group in const [
             SettingsGroup.appearance,
             SettingsGroup.playback,
@@ -114,6 +100,20 @@ class MinePage extends StatelessWidget {
               title: group.label,
               onTap: () => _openGroup(context, group),
             ),
+        ],
+      ),
+      GroupCard(
+        children: [
+          SettingsTile(
+            icon: Icons.download_rounded,
+            title: '下载',
+            onTap: () => _openDownloads(context),
+          ),
+          SettingsTile(
+            icon: Icons.extension_outlined,
+            title: '模块',
+            onTap: () => _openModules(context),
+          ),
         ],
       ),
       GroupCard(
