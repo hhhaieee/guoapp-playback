@@ -285,6 +285,11 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   // 避免在 willResignActive 才临时建 layer、等渲染，却因马上进后台而卡住。
   private var prepared = false
   private var preparedUrl: String?
+  // 画中画中切集：PiP 激活期间 replaceCurrentItem 不会刷新画面（旧集循环），
+  // 需先停 PiP 再用新集重建。换源期间屏蔽 didStop 的正常收尾，避免误把本地
+  // 播放器 seek 回旧集进度。
+  private var switchingSource = false
+  private var pendingSourceSwitch: [String: Any]?
 
   init(messenger: FlutterBinaryMessenger) {
     channel = FlutterMethodChannel(name: "duanju/pip", binaryMessenger: messenger)
@@ -357,10 +362,43 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     }
   }
 
-  /// 画中画播放中切集：用新一集的流地址替换当前 item，PiP 窗口不中断。
+  /// 画中画播放中切集。PiP 激活期间直接 replaceCurrentItem 不会刷新画面（PiP 仍
+  /// 循环旧帧），因此改为：停掉 PiP → 复用已挂载的 player/layer 换 item → 重启 PiP。
+  /// 复用现有 layer 是关键：切集时 App 多在后台，重新 prepare 会拿不到前台窗口。
   private func switchSource(_ args: [String: Any]) {
     guard AVPictureInPictureController.isPictureInPictureSupported(),
-          let urlString = args["url"] as? String,
+          args["url"] as? String != nil else { return }
+    // 换源重启进行中（含 stop 已发出的窗口期）：只更新目标集，把快速连点合并到最新一集。
+    if switchingSource {
+      pendingSourceSwitch = args
+      return
+    }
+    if pipController?.isPictureInPictureActive == true {
+      switchingSource = true
+      pendingSourceSwitch = args
+      pipController?.stopPictureInPicture()
+      // 兜底：极少数情况下系统不回调 didStop，1.5 秒后强制继续，避免卡死在停播态。
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+        self?.finishSourceSwitch()
+      }
+    } else {
+      // PiP 未激活（前台预热/未启动）：直接换 item，不需重启 PiP。
+      replaceItem(args, restartPip: false)
+    }
+  }
+
+  /// 完成换源：用最新目标集换 item 并重启 PiP。由 didStop 回调或超时兜底触发。
+  private func finishSourceSwitch() {
+    guard switchingSource else { return }
+    switchingSource = false
+    let args = pendingSourceSwitch ?? [:]
+    pendingSourceSwitch = nil
+    replaceItem(args, restartPip: true)
+  }
+
+  /// 用新集 URL 替换当前 item，复用现有 player/layer/pipController（不重新挂载窗口）。
+  private func replaceItem(_ args: [String: Any], restartPip: Bool) {
+    guard let urlString = args["url"] as? String,
           let url = URL(string: urlString),
           let player else { return }
     var options: [String: Any] = [:]
@@ -382,19 +420,20 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
           self.playerItem = item
           self.preparedUrl = urlString
           player.replaceCurrentItem(with: item)
-          // 切集换源后确保出声并真正播放（PiP 中换源同样需要 rate>0 才渲染新一集）。
+          // PiP 中换源需取消静音并以 rate>0 播放，新一集才会真正渲染出画面。
           player.isMuted = false
           item.seek(to: CMTime(value: Int64(position), timescale: 1000),
                     toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             DispatchQueue.main.async {
               guard let self else { return }
               player.rate = Float(self.lastRate)
+              if restartPip { self.startPictureInPicture() }
             }
           }
         case .failed:
           self.kvoToken = nil
           let message = observed.error?.localizedDescription ?? "新一集加载失败"
-          self.channel.invokeMethod("state", arguments: ["active": true, "error": message])
+          self.channel.invokeMethod("state", arguments: ["active": false, "error": message])
         default:
           break
         }
@@ -666,6 +705,9 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   }
 
   private func exit() {
+    // 用户主动退出：清除换源标志，避免切集中途退出时被 didStop 误判为换源而重启。
+    switchingSource = false
+    pendingSourceSwitch = nil
     pipController?.stopPictureInPicture()
     cleanup()
   }
@@ -680,6 +722,8 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     lastPipError = nil
     prepared = false
     preparedUrl = nil
+    switchingSource = false
+    pendingSourceSwitch = nil
     player?.pause()
     pipController?.delegate = nil
     pipController = nil
@@ -700,6 +744,12 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   }
 
   func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+    // 切集导致的停止：不回传结束状态（否则 Dart 会把本地播放器恢复并把进度
+    // seek 回旧集），直接用新集重建并重启 PiP。
+    if switchingSource {
+      finishSourceSwitch()
+      return
+    }
     // 返回全屏时把系统 PiP（独立 AVPlayer）的当前进度回传，Flutter 侧据此 seek，
     // 避免回到全屏后播放进度仍停留在进入 PiP 之前的位置。
     let seconds = player?.currentTime().seconds ?? 0
