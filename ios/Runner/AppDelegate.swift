@@ -290,9 +290,16 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   // 播放器 seek 回旧集进度。
   private var switchingSource = false
   private var pendingSourceSwitch: [String: Any]?
+  // 画中画本集播到片尾：监听 AVPlayerItemDidPlayToEndTime，通知 Dart 切下一集。
+  // 用户点「前进15秒」把进度推到片尾同样会触发。此前原生播完不做任何事，
+  // 导致进度到头后画中画永远停在旧集——这是「切集还是同一集」的真正原因。
+  private var endObserver: NSObjectProtocol?
+  private var endHandled = false
+  private let mediaChannel: FlutterMethodChannel
 
   init(messenger: FlutterBinaryMessenger) {
     channel = FlutterMethodChannel(name: "duanju/pip", binaryMessenger: messenger)
+    mediaChannel = FlutterMethodChannel(name: "duanju/media", binaryMessenger: messenger)
     super.init()
     // 「离开应用时自动画中画」：在 App 即将失去活跃（进入后台/锁屏）的瞬间
     // 启动系统画中画。此时场景仍处于可启动 PiP 的过渡态，成功率最高。
@@ -371,6 +378,24 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     channel.invokeMethod("diag", arguments: msg)
   }
 
+  /// 监听当前 item 播到片尾：通过媒体命令通道发 next，让 Dart 切下一集，
+  /// 随后 Dart 的会话变化会触发换源，把画中画切换到新一集。
+  private func observeEnd(of item: AVPlayerItem) {
+    endObserver?.invalidate()
+    endObserver = nil
+    endHandled = false
+    endObserver = NotificationCenter.default.addObserver(
+      forName: Notification.Name.AVPlayerItemDidPlayToEndTime,
+      object: item,
+      queue: .main
+    ) { [weak self] _ in
+      guard let self, !self.endHandled else { return }
+      self.endHandled = true
+      self.diag("画中画本集播到片尾，请求切下一集")
+      self.mediaChannel.invokeMethod("command", arguments: ["command": "next"])
+    }
+  }
+
   /// 画中画播放中切集：直接在现有 AVPlayer 上替换 item，不停止画中画。
   /// 关键：PiP 激活时 App 多在后台，iOS 不允许在后台重新 start PiP，所以
   /// 「stop→重启」方案停了就起不来。PiP 绑定的是同一个 player，替换 item
@@ -418,6 +443,7 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
           self.kvoToken = nil
           self.playerItem = item
           self.preparedUrl = urlString
+          self.observeEnd(of: item)
           player.replaceCurrentItem(with: item)
           // PiP 中换源需取消静音并以 rate>0 播放，新一集才会真正渲染出画面。
           player.isMuted = false
@@ -528,6 +554,7 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     self.player = newPlayer
     self.playerItem = item
     self.playerLayer = layer
+    self.observeEnd(of: item)
 
     if #available(iOS 15.0, *),
        let controller = AVPictureInPictureController(playerLayer: layer) {
@@ -714,6 +741,9 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   }
 
   private func cleanup() {
+    if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+    endObserver = nil
+    endHandled = false
     if let timeObserver { player?.removeTimeObserver(timeObserver) }
     timeObserver = nil
     kvoToken = nil
