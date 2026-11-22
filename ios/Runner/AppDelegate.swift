@@ -806,6 +806,7 @@ final class VolumeKeyWatcher: NSObject {
   private let channel: FlutterMethodChannel
   private var observation: NSKeyValueObservation?
   private var volumeToken: NSObjectProtocol?
+  private var pollTimer: DispatchSourceTimer?
   private var suppress = false
   private var lastVolume: Float = 0
   private let volumeView = MPVolumeView(frame: CGRect(x: -100, y: -100, width: 1, height: 1))
@@ -841,6 +842,10 @@ final class VolumeKeyWatcher: NSObject {
       self.emit(value)
       self.scheduleBoundaryResetIfNeeded(value)
     }
+    // 会话挂起（离开播放器后无音频播放）时，上面的通知/KVO 不再可靠。
+    // 定时器主动读取 outputVolume 作为兜底，保证非播放器页面按键仍能弹出图标。
+    pollTimer = makePollTimer()
+    pollTimer?.resume()
     channel.setMethodCallHandler { [weak self] call, result in
       guard let self else { result(nil); return }
       switch call.method {
@@ -863,6 +868,22 @@ final class VolumeKeyWatcher: NSObject {
       "volume": Double(value),
       "enabled": true,
     ])
+  }
+
+  /// 主动轮询兜底：脱离音频会话也能读到系统音量，避免离开播放器后
+  /// 通知/KVO 因会话挂起而不再触发，导致非播放器页面按键无图标。
+  private func makePollTimer() -> DispatchSourceTimer {
+    let timer = DispatchSource.makeTimerSource(queue: .main)
+    timer.schedule(deadline: .now() + 0.3, repeating: 0.3)
+    timer.setEventHandler { [weak self] in
+      guard let self, !self.suppress else { return }
+      let value = AVAudioSession.sharedInstance().outputVolume
+      if abs(value - self.lastVolume) < 0.001 { return }
+      self.lastVolume = value
+      self.emit(value)
+      self.scheduleBoundaryResetIfNeeded(value)
+    }
+    return timer
   }
 
   /// 音量到顶/到底后，系统不再改变音量，继续按同方向实体键不会再发

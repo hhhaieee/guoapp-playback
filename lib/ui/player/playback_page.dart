@@ -40,6 +40,9 @@ class _PlaybackPageState extends State<PlaybackPage> {
   Map<String, String> _autoPipHeaders = const {};
   bool _autoPipArmed = false;
   bool _autoPipSyncing = false;
+  // 画中画地址/加载失败后置灰，切集时恢复可用。
+  bool _pipUnavailable = false;
+  String? _pipSessionMark;
   // 画中画独立播放器当前正在播放的媒体会话，用于检测切集并换源。
   String? _pipSourceSession;
   bool _pipSwitching = false;
@@ -137,6 +140,13 @@ class _PlaybackPageState extends State<PlaybackPage> {
     if (!mounted) return;
     final session = _session;
     final playing = session.player.state.playing;
+    // 切集（媒体会话变化）时给画中画一次重新可用的机会，避免上次失败永久置灰。
+    if (_pipUnavailable &&
+        session.mediaSession.isNotEmpty &&
+        session.mediaSession != _pipSessionMark) {
+      setState(() => _pipUnavailable = false);
+    }
+    _pipSessionMark = session.mediaSession;
     _pip.update(
       aspectRatio: session.aspectRatio,
       playing: playing,
@@ -204,6 +214,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
     // 画中画期间保留系统媒体控制，控制中心/线控的切集命令才能送达 App。
     _session.setPipActive(active);
     if (active) {
+      _pipUnavailable = false;
       // 记录 PiP 独立播放器正在播放的会话，作为切集换源的基准。
       _pipSourceSession = _session.mediaSession;
       // 系统 PiP 启动：本地播放器交给 PiP 的独立 AVPlayer，暂停原画面。
@@ -231,13 +242,9 @@ class _PlaybackPageState extends State<PlaybackPage> {
         restore();
       }
     }
-    if (!active &&
-        error != null &&
-        error.isNotEmpty &&
-        _session.player.state.position > Duration.zero) {
-      ScaffoldMessenger.maybeOf(
-        context,
-      )?.showSnackBar(SnackBar(content: Text('画中画启动失败：$error')));
+    // 启动失败只把小窗按钮置为不可用，不再弹错误提示打断观看。
+    if (!active && error != null && error.isNotEmpty) {
+      _pipUnavailable = true;
     }
     setState(() {});
   }
@@ -322,6 +329,8 @@ class _PlaybackPageState extends State<PlaybackPage> {
       final shouldArm =
           widget.store.playbackPreferences.autoPictureInPicture &&
           session.player.state.playing &&
+          session.player.state.position > Duration.zero &&
+          !_pipUnavailable &&
           !_television &&
           !_audio &&
           _iosPip.supported &&
@@ -334,7 +343,9 @@ class _PlaybackPageState extends State<PlaybackPage> {
         return;
       }
       final resolved = await _resolvePipUrl(cache: true);
-      if (!mounted || resolved.url.isEmpty) {
+      if (!mounted) return;
+      if (resolved.url.isEmpty) {
+        if (!_pipUnavailable) setState(() => _pipUnavailable = true);
         if (_autoPipArmed) {
           _autoPipArmed = false;
           await _iosPip.disarmAuto();
@@ -466,8 +477,9 @@ class _PlaybackPageState extends State<PlaybackPage> {
   Widget _page(BuildContext context) {
     final form = AppScope.formFactorOf(context);
     final pipAvailable =
-        _pip.available ||
-        (defaultTargetPlatform == TargetPlatform.iOS && _iosPip.supported);
+        !_pipUnavailable &&
+        (_pip.available ||
+            (defaultTargetPlatform == TargetPlatform.iOS && _iosPip.supported));
     final mini = pipAvailable ? () => unawaited(_enterMini()) : null;
     if (_audio && form != FormFactor.television) {
       return AudioPlayerPage(
