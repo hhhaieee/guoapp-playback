@@ -330,34 +330,11 @@ class SettingsSection extends StatelessWidget {
           ),
         ],
       ),
-      if (MediaControls.supported)
-        SettingsCard(
-          children: [
-            SwitchTile(
-              title: '后台播放',
-              subtitle: Platform.isAndroid || Platform.isIOS
-                  ? '离开应用或锁屏后继续播放，可在通知栏、锁屏和耳机上控制'
-                  : '最小化后继续播放，可用键盘媒体键和系统媒体控件控制',
-              value: preferences.backgroundPlayback,
-              onChanged: (value) => savePreferences(
-                preferences.copyWith(backgroundPlayback: value),
-              ),
-            ),
-          ],
-        ),
-      if ((Platform.isAndroid || Platform.isIOS) && !television)
-        SettingsCard(
-          children: [
-            SwitchTile(
-              title: '离开应用时自动画中画',
-              subtitle: '播放中回到桌面时自动进入画中画（横竖屏均可）',
-              value: preferences.autoPictureInPicture,
-              onChanged: (value) => savePreferences(
-                preferences.copyWith(autoPictureInPicture: value),
-              ),
-            ),
-          ],
-        ),
+      _LeaveBehaviorCard(
+        preferences: preferences,
+        television: television,
+        onChanged: savePreferences,
+      ),
       if (Platform.isWindows || Platform.isMacOS)
         SettingsCard(
           children: [
@@ -898,4 +875,139 @@ class _ProxyDialogState extends State<_ProxyDialog> {
       ),
     ],
   );
+}
+
+enum _LeaveMode { pause, background, pip }
+
+/// 离开应用后的播放方式：三选一互斥。
+/// 后台播放与自动画中画争用同一后台播放角色，故合并为一组单选，
+/// 选中任一项即写死两个开关，杜绝同时开启。
+class _LeaveBehaviorCard extends StatelessWidget {
+  const _LeaveBehaviorCard({
+    required this.preferences,
+    required this.television,
+    required this.onChanged,
+  });
+  final PlaybackPreferences preferences;
+  final bool television;
+  final ValueChanged<PlaybackPreferences> onChanged;
+
+  _LeaveMode get _mode {
+    if (preferences.autoPictureInPicture) return _LeaveMode.pip;
+    if (preferences.backgroundPlayback) return _LeaveMode.background;
+    return _LeaveMode.pause;
+  }
+
+  void _select(_LeaveMode mode) {
+    onChanged(preferences.copyWith(
+      backgroundPlayback: mode == _LeaveMode.background,
+      autoPictureInPicture: mode == _LeaveMode.pip,
+    ));
+  }
+
+  Widget _option(
+    BuildContext context, {
+    required _LeaveMode mode,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    final selected = _mode == mode;
+    return ListTile(
+      contentPadding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
+      minTileHeight: 72,
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: selected ? colors.primaryContainer : colors.secondaryContainer,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          icon,
+          size: 22,
+          color: selected ? colors.onPrimaryContainer : colors.onSecondaryContainer,
+        ),
+      ),
+      title: Text(title),
+      subtitle: Text(subtitle),
+      trailing: Radio<_LeaveMode>(
+        value: mode,
+        groupValue: _mode,
+        onChanged: (value) {
+          if (value != null) _select(value);
+        },
+      ),
+      onTap: () => _select(mode),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final mobile = Platform.isAndroid || Platform.isIOS;
+    final options = <Widget>[
+      _option(
+        context,
+        mode: _LeaveMode.pause,
+        icon: Icons.pause_circle_outlined,
+        title: '离开即暂停',
+        subtitle: '离开应用或锁屏后停止播放',
+      ),
+      if (MediaControls.supported)
+        _option(
+          context,
+          mode: _LeaveMode.background,
+          icon: Icons.headphones_rounded,
+          title: '后台播放',
+          subtitle: mobile
+              ? '离开应用或锁屏后继续播放，可在通知栏、锁屏和耳机上控制'
+              : '最小化后继续播放，可用键盘媒体键和系统媒体控件控制',
+        ),
+      if (mobile && !television)
+        _option(
+          context,
+          mode: _LeaveMode.pip,
+          icon: Icons.picture_in_picture_alt_rounded,
+          title: '自动画中画',
+          subtitle: '播放中回到桌面时自动进入画中画（横竖屏均可）',
+        ),
+    ];
+    return SettingsCard(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            spacing: 12,
+            children: [
+              Icon(Icons.exit_to_app_rounded, size: 20, color: colors.primary),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  spacing: 2,
+                  children: [
+                    Text(
+                      '离开应用后',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                    Text(
+                      '以下三种方式互斥，只能选择其中一项',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: colors.onSurfaceVariant,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        for (final option in options) option,
+      ],
+    );
+  }
 }
