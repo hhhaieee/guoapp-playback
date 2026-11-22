@@ -10,6 +10,7 @@ import '../app_device.dart';
 import '../core_bridge.dart';
 import '../local_store.dart';
 import '../theme_color.dart';
+import '../volume_keys_hud.dart';
 import 'app_scope.dart';
 import 'cover_blur.dart';
 import 'device_registration.dart';
@@ -225,6 +226,10 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
   }
 
   Widget _application(LocalStore? store) {
+    final volumeHud = store?.playbackPreferences.volumeKeysHud ?? true;
+    if (VolumeKeysHud.instance.enabled != volumeHud) {
+      unawaited(VolumeKeysHud.instance.setEnabled(volumeHud));
+    }
     _resetRoutes(store);
     final formFactor = switch (store?.displayMode) {
       'television' => FormFactor.television,
@@ -285,59 +290,66 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
       theme: _themes.$1,
       darkTheme: _themes.$2,
       themeMode: AppTheme.mode(store?.themeMode ?? 'system'),
-      builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
-        value: AppTheme.systemBars(Theme.of(context).brightness),
-        child: Focus(
-          canRequestFocus: false,
-          skipTraversal: true,
-          onKeyEvent: (_, event) => _escape(event),
-          child: Shortcuts(
-            shortcuts: const {
-              SingleActivator(LogicalKeyboardKey.select, includeRepeats: false):
-                  ActivateIntent(),
-              SingleActivator(
-                LogicalKeyboardKey.gameButtonA,
-                includeRepeats: false,
-              ): ActivateIntent(),
-            },
-            child: AppScope(
-              repository: widget.repository,
-              formFactor: formFactor,
-              systemColorAvailable: _systemColor != null,
-              version: widget.version,
-              child: CoverBlurScope(
-                mode: coverBlur,
-                enabled: !television && (store?.blurCoversButton ?? false),
-                everywhere: store?.blurAllCovers ?? false,
-                onToggle: () => setState(
-                  () => _coverBlur = coverBlur == CoverBlur.off
-                      ? CoverBlur.all
-                      : CoverBlur.off,
-                ),
-                child: Builder(
-                  builder: (context) {
-                    final phone =
-                        AppScope.formFactorOf(context) == FormFactor.phone;
-                    if (phone != _phone) {
-                      _phone = phone;
-                      unawaited(AppDevice.setPhoneMode(phone));
-                    }
-                    return FocusOutlineMotion(
-                      child: FocusOutlineLayer(
-                        child: FocusTraversalGroup(
-                          policy: ReadingOrderTraversalPolicy(
-                            requestFocusCallback: revealFocus,
+      builder: (context, child) => Stack(
+        children: [
+          AnnotatedRegion<SystemUiOverlayStyle>(
+            value: AppTheme.systemBars(Theme.of(context).brightness),
+            child: Focus(
+              canRequestFocus: false,
+              skipTraversal: true,
+              onKeyEvent: (_, event) => _escape(event),
+              child: Shortcuts(
+                shortcuts: const {
+                  SingleActivator(
+                    LogicalKeyboardKey.select,
+                    includeRepeats: false,
+                  ): ActivateIntent(),
+                  SingleActivator(
+                    LogicalKeyboardKey.gameButtonA,
+                    includeRepeats: false,
+                  ): ActivateIntent(),
+                },
+                child: AppScope(
+                  repository: widget.repository,
+                  formFactor: formFactor,
+                  systemColorAvailable: _systemColor != null,
+                  version: widget.version,
+                  child: CoverBlurScope(
+                    mode: coverBlur,
+                    enabled: !television && (store?.blurCoversButton ?? false),
+                    everywhere: store?.blurAllCovers ?? false,
+                    onToggle: () => setState(
+                      () => _coverBlur = coverBlur == CoverBlur.off
+                          ? CoverBlur.all
+                          : CoverBlur.off,
+                    ),
+                    child: Builder(
+                      builder: (context) {
+                        final phone =
+                            AppScope.formFactorOf(context) == FormFactor.phone;
+                        if (phone != _phone) {
+                          _phone = phone;
+                          unawaited(AppDevice.setPhoneMode(phone));
+                        }
+                        return FocusOutlineMotion(
+                          child: FocusOutlineLayer(
+                            child: FocusTraversalGroup(
+                              policy: ReadingOrderTraversalPolicy(
+                                requestFocusCallback: revealFocus,
+                              ),
+                              child: child!,
+                            ),
                           ),
-                          child: child!,
-                        ),
-                      ),
-                    );
-                  },
+                        );
+                      },
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
-        ),
+          Positioned.fill(child: VolumeHudOverlay(hud: VolumeKeysHud.instance)),
+        ],
       ),
       themeAnimationDuration: Motion.long,
       themeAnimationCurve: Motion.standard,

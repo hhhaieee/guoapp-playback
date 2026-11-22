@@ -10,7 +10,6 @@ import '../../ios_picture_in_picture.dart';
 import '../../local_store.dart';
 import '../../picture_in_picture.dart';
 import '../../playback_session.dart';
-import '../../volume_keys_hud.dart';
 import '../app_scope.dart';
 import 'audio_player_page.dart';
 import 'landscape_player_page.dart';
@@ -74,9 +73,6 @@ class _PlaybackPageState extends State<PlaybackPage> {
     _iosPip.onPipPlaying = _pipPlayingChanged;
     _iosPip.addListener(_iosPipChanged);
     _bind();
-    VolumeKeysHud.instance.setEnabled(
-      widget.store.playbackPreferences.volumeKeysHud,
-    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _sync());
   }
 
@@ -97,7 +93,6 @@ class _PlaybackPageState extends State<PlaybackPage> {
     if (_padFullscreen.value) _applyPadFullscreen(false);
     _padFullscreen.dispose();
     unawaited(AppDevice.resetBrightness());
-    VolumeKeysHud.instance.setEnabled(false);
     widget.handle.dispose();
     super.dispose();
   }
@@ -199,8 +194,12 @@ class _PlaybackPageState extends State<PlaybackPage> {
     _pipPlaying = playing;
   }
 
-  void _iosPipState(bool active,
-      {String? error, double? positionMs, bool? playing}) {
+  void _iosPipState(
+    bool active, {
+    String? error,
+    double? positionMs,
+    bool? playing,
+  }) {
     if (!mounted) return;
     // 画中画期间保留系统媒体控制，控制中心/线控的切集命令才能送达 App。
     _session.setPipActive(active);
@@ -232,9 +231,13 @@ class _PlaybackPageState extends State<PlaybackPage> {
         restore();
       }
     }
-    if (!active && error != null && error.isNotEmpty) {
-      ScaffoldMessenger.maybeOf(context)
-        ?.showSnackBar(SnackBar(content: Text('画中画启动失败：$error')));
+    if (!active &&
+        error != null &&
+        error.isNotEmpty &&
+        _session.player.state.position > Duration.zero) {
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text('画中画启动失败：$error')));
     }
     setState(() {});
   }
@@ -456,14 +459,14 @@ class _PlaybackPageState extends State<PlaybackPage> {
                   onClose: () => unawaited(_close()),
                 )
               : PictureInPictureView(handle: widget.handle),
-        VolumeHudOverlay(hud: VolumeKeysHud.instance),
       ],
     );
   }
 
   Widget _page(BuildContext context) {
     final form = AppScope.formFactorOf(context);
-    final pipAvailable = _pip.available ||
+    final pipAvailable =
+        _pip.available ||
         (defaultTargetPlatform == TargetPlatform.iOS && _iosPip.supported);
     final mini = pipAvailable ? () => unawaited(_enterMini()) : null;
     if (_audio && form != FormFactor.television) {
