@@ -230,7 +230,13 @@ class PlaybackPreferences {
     PrebufferSize? prebufferSize,
     bool? volumeKeysHud,
     bool? removeAds,
-  }) => PlaybackPreferences(
+  }) {
+    // 后台播放与自动画中画互斥：任一调用都保证不会同时为 true。
+    final nextPip = autoPictureInPicture ?? this.autoPictureInPicture;
+    final nextBackground = nextPip
+        ? false
+        : backgroundPlayback ?? this.backgroundPlayback;
+    return PlaybackPreferences(
     speed: speed ?? this.speed,
     quality: quality ?? this.quality,
     autoAdvance: autoAdvance ?? this.autoAdvance,
@@ -259,13 +265,14 @@ class PlaybackPreferences {
     hideSystemBars: hideSystemBars ?? this.hideSystemBars,
     portraitStyleForWide: portraitStyleForWide ?? this.portraitStyleForWide,
     directPlay: directPlay ?? this.directPlay,
-    autoPictureInPicture: autoPictureInPicture ?? this.autoPictureInPicture,
-    backgroundPlayback: backgroundPlayback ?? this.backgroundPlayback,
+    autoPictureInPicture: nextPip,
+    backgroundPlayback: nextBackground,
     videoFit: videoFit ?? this.videoFit,
     prebufferSize: prebufferSize ?? this.prebufferSize,
     volumeKeysHud: volumeKeysHud ?? this.volumeKeysHud,
     removeAds: removeAds ?? this.removeAds,
-  );
+    );
+  }
 
   Map<String, dynamic> toJson() => {
     'speed': speed,
@@ -313,6 +320,12 @@ class PlaybackPreferences {
     final preload = value['preload'] as bool? ?? true;
     final danmakuScale = (value['danmakuScale'] as num? ?? 1).toDouble();
     final danmakuColor = value['danmakuColor'] as int? ?? 0xFFFFFFFF;
+    // 后台播放与自动画中画互斥：历史版本两者可能都为 true，归一时保留画中画。
+    final autoPictureInPicture =
+        value['autoPictureInPicture'] as bool? ?? false;
+    final backgroundPlayback = autoPictureInPicture
+        ? false
+        : value['backgroundPlayback'] as bool? ?? false;
     if (!playbackSpeeds.contains(speed) || quality < 0 || quality > 4320) {
       throw const FormatException('播放偏好无效');
     }
@@ -365,8 +378,8 @@ class PlaybackPreferences {
       hideSystemBars: value['hideSystemBars'] as bool? ?? true,
       portraitStyleForWide: value['portraitStyleForWide'] as bool? ?? false,
       directPlay: value['directPlay'] as bool? ?? false,
-      autoPictureInPicture: value['autoPictureInPicture'] as bool? ?? false,
-      backgroundPlayback: value['backgroundPlayback'] as bool? ?? false,
+      autoPictureInPicture: autoPictureInPicture,
+      backgroundPlayback: backgroundPlayback,
       videoFit: VideoFit.values.asNameMap()[value['videoFit']] ?? VideoFit.auto,
       prebufferSize:
           PrebufferSize.values.asNameMap()[value['prebufferSize']] ??
