@@ -59,6 +59,28 @@ private func notifyVolumeSessionWillActivate() {
     slider?.value = min(max(value, 0), 1)
   }
 
+  private func applyAlternateIcon(_ name: String?, result: @escaping FlutterResult) {
+    let finish: (Error?) -> Void = { error in
+      DispatchQueue.main.async {
+        if let error = error {
+          result(FlutterError(code: "icon_switch_failed", message: error.localizedDescription, details: nil))
+        } else {
+          result(nil)
+        }
+      }
+    }
+    let selector = NSSelectorFromString("_setAlternateIconName:withCompletionHandler:")
+    if UIApplication.shared.responds(to: selector) {
+      typealias PrivateMethod = @convention(c) (UIApplication, Selector, NSString?, Any?) -> Void
+      let implementation = class_getMethodImplementation(UIApplication.self, selector)
+      let method = unsafeBitCast(implementation, to: PrivateMethod.self)
+      let completion: @convention(block) (NSError?) -> Void = { error in finish(error) }
+      method(UIApplication.shared, selector, name as NSString?, completion)
+    } else {
+      UIApplication.shared.setAlternateIconName(name) { error in finish(error) }
+    }
+  }
+
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "MediaControls") {
@@ -133,6 +155,10 @@ private func notifyVolumeSessionWillActivate() {
           biometricContext.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { success, _ in
             DispatchQueue.main.async { result(success) }
           }
+          return
+        case "setLauncherIcon":
+          let icon = (arguments?["name"] as? String) ?? "star"
+          self.applyAlternateIcon(icon == "star" ? nil : icon, result: result)
           return
         default:
           break

@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 
 import '../../models.dart';
@@ -176,12 +178,17 @@ class SourceBar extends StatelessWidget {
                         color: Colors.transparent,
                         child: InkWell(
                           onTap: onMoreSources ?? () => onSwitchSource(context),
-                          child: Image.asset(
-                            'assets/images/star_ball.png',
-                            width: 34,
-                            height: 34,
-                            fit: BoxFit.cover,
-                            filterQuality: FilterQuality.high,
+                          child: ColorFiltered(
+                            filter: _ballTint(
+                              Theme.of(context).colorScheme.primary,
+                            ),
+                            child: Image.asset(
+                              'assets/images/star_ball.png',
+                              width: 34,
+                              height: 34,
+                              fit: BoxFit.cover,
+                              filterQuality: FilterQuality.high,
+                            ),
                           ),
                         ),
                       ),
@@ -288,6 +295,36 @@ class _SourceChipsState extends State<_SourceChips> {
       },
     );
   }
+}
+
+ColorFilter _ballTint(Color primary) {
+  final hue = HSLColor.fromColor(primary);
+  if (hue.saturation < 0.12) {
+    return ColorFilter.matrix(_saturationMatrix(0.12));
+  }
+  return ColorFilter.matrix(_hueRotateMatrix((hue.hue - 190) * pi / 180));
+}
+
+List<double> _saturationMatrix(double saturation) {
+  const lr = 0.213, lg = 0.715, lb = 0.072;
+  final keep = 1 - saturation;
+  return <double>[
+    lr * keep + saturation, lg * keep, lb * keep, 0,
+    lr * keep, lg * keep + saturation, lb * keep, 0,
+    lr * keep, lg * keep, lb * keep + saturation, 0,
+    0, 0, 0, 1,
+  ];
+}
+
+List<double> _hueRotateMatrix(double angle) {
+  final c = cos(angle);
+  final s = sin(angle);
+  return <double>[
+    0.213 + c * 0.787 - s * 0.213, 0.715 - c * 0.715 - s * 0.715, 0.072 - c * 0.072 + s * 0.072, 0,
+    0.213 - c * 0.213 + s * 0.143, 0.715 + c * 0.285 + s * 0.140, 0.072 - c * 0.072 - s * 0.283, 0,
+    0.213 - c * 0.213 - s * 0.787, 0.715 - c * 0.715 + s * 0.715, 0.072 + c * 0.072 + s * 0.072, 0,
+    0, 0, 0, 1,
+  ];
 }
 
 class _RecentSearchField extends StatefulWidget {
