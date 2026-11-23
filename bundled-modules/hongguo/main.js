@@ -3171,18 +3171,23 @@ function seasons(sourceId) {
     return cached;
   }
   const deadline = Date.now() + seasonTimeoutMs;
-  const result = appRequest("POST", paths.seriesPack, null, seasonPackBody([sourceId], [
-    "album_id", "album_title", "album_serial_count", "series_in_album_order", "album_series_ids",
-  ]), { deadline });
-  const ids = [];
-  for (const value of anyList(nested(result, "data", sourceId, "album_info").album_series_ids)) {
-    const id = typeof value === "number" && Number.isInteger(value) ? String(value) : value;
-    if (numericId(id)) {
-      ids.push(id);
+  const fallback = () => searchSeasonsFallback(sourceId, deadline);
+  let ids = [];
+  try {
+    const result = appRequest("POST", paths.seriesPack, null, seasonPackBody([sourceId], [
+      "album_id", "album_title", "album_serial_count", "series_in_album_order", "album_series_ids",
+    ]), { deadline });
+    for (const value of anyList(nested(result, "data", sourceId, "album_info").album_series_ids)) {
+      const id = typeof value === "number" && Number.isInteger(value) ? String(value) : value;
+      if (numericId(id)) {
+        ids.push(id);
+      }
     }
+  } catch (error) {
+    return fallback();
   }
   if (ids.length < 2 || ids.length > seriesSeasonLimit) {
-    return [];
+    return fallback();
   }
   const packed = seasonPack(ids);
   const found = [];
@@ -3196,12 +3201,79 @@ function seasons(sourceId) {
     }
   });
   if (found.length < 2) {
-    return [];
+    return fallback();
   }
   if (found.length === ids.length) {
     for (const season of found) {
       cacheWrite("seasons:" + season.drama.sourceId, found, 30 * minuteMs);
     }
+  }
+  return found;
+}
+
+// 红果 App 接口的 album_series_ids 字段已失效（上游停止维护），
+// 这里退而用网页搜索联想接口按剧名找回同名各季，重建季列表。
+function searchSeasonsFallback(sourceId, deadline) {
+  if (remainingMs(deadline) <= 0) {
+    return [];
+  }
+  let currentTitle = "";
+  try {
+    currentTitle = displayTitle(appDetail(sourceId).drama);
+  } catch (error) {
+    return [];
+  }
+  const parsed = parseSeason(currentTitle);
+  let base;
+  let currentNumber;
+  if (parsed !== null) {
+    base = parsed.base;
+    currentNumber = parsed.number;
+  } else {
+    base = currentTitle;
+    currentNumber = 1;
+  }
+  const baseKey = searchText(base);
+  if (baseKey === "") {
+    return [];
+  }
+  let dramas;
+  try {
+    dramas = fetchSearchNames(base, deadline);
+  } catch (error) {
+    return [];
+  }
+  const bySourceId = new Map();
+  const byNumber = new Map();
+  for (const drama of dramas) {
+    const title = displayTitle(drama);
+    let number = 0;
+    const parsedTitle = parseSeason(title);
+    if (parsedTitle !== null && searchText(parsedTitle.base) === baseKey) {
+      number = parsedTitle.number;
+    } else if (searchText(title) === baseKey) {
+      number = 1;
+    }
+    if (number < 1 || number > seasonLimit || bySourceId.has(drama.sourceId)) {
+      continue;
+    }
+    bySourceId.set(drama.sourceId, true);
+    byNumber.set(number, drama);
+  }
+  if (!bySourceId.has(sourceId)) {
+    const current = seasonDrama(sourceId, deadline);
+    if (current !== null) {
+      byNumber.set(currentNumber, current);
+      bySourceId.set(sourceId, true);
+    }
+  }
+  const numbers = Array.from(byNumber.keys()).sort((left, right) => left - right);
+  if (numbers.length < 2) {
+    return [];
+  }
+  const found = numbers.map((number) => ({ number, drama: byNumber.get(number) }));
+  for (const season of found) {
+    cacheWrite("seasons:" + season.drama.sourceId, found, 30 * minuteMs);
   }
   return found;
 }
