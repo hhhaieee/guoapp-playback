@@ -83,7 +83,6 @@ abstract final class AppTheme {
       // 「撤销」等操作按钮也取主题语义色，保证任何主题下都协调、可读。
       snackBarTheme: SnackBarThemeData(
         backgroundColor: scheme.surfaceContainerHighest,
-        surfaceTintColor: Colors.transparent,
         elevation: 0,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -93,11 +92,7 @@ abstract final class AppTheme {
           fontSize: 14,
           fontWeight: FontWeight.w500,
         ),
-        actionTextStyle: TextStyle(
-          color: scheme.primary,
-          fontSize: 14,
-          fontWeight: FontWeight.w700,
-        ),
+        actionTextColor: scheme.primary,
       ),
     );
     final titled = theme.copyWith(
