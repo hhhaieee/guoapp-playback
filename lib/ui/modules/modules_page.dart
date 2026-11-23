@@ -59,7 +59,7 @@ List<SourceModule> _arranged(List<SourceModule> modules, List<String> order) {
   return [for (final id in order) ?byId.remove(id), ...byId.values];
 }
 
-const _tabLabels = ['已安装', '在线仓库', '百宝袋', '内置', '手动'];
+const _tabLabels = ['已安装', '在线仓库', '百宝袋', '手动'];
 
 class _ModulesPageState extends State<ModulesPage>
     with SingleTickerProviderStateMixin {
@@ -502,7 +502,7 @@ class _ModulesPageState extends State<ModulesPage>
       if (modules == null && _error == null)
         const _Loading()
       else if (modules != null && modules.isEmpty)
-        const _Note('还没有安装模块。站源以模块的形式提供，可以从在线仓库、内置或手动安装。')
+        const _Note('还没有安装模块。站源以模块的形式提供，可以从在线仓库或手动安装。')
       else if (modules != null)
         for (final module in modules) card(module),
     ]);
@@ -690,7 +690,6 @@ class _ModulesPageState extends State<ModulesPage>
             _installedTab(),
             _catalogTab(bundled: false),
             _baibaoTab(),
-            _catalogTab(bundled: true),
             _manualTab(),
           ],
         ),
@@ -702,7 +701,6 @@ class _ModulesPageState extends State<ModulesPage>
     0 => _installedTab(),
     1 => _catalogTab(bundled: false),
     2 => _baibaoTab(),
-    3 => _catalogTab(bundled: true),
     _ => _manualTab(),
   };
 

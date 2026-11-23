@@ -48,7 +48,6 @@ desktop.ini
 
 /native/core/bundled/*
 !/native/core/bundled/.gitkeep
-/bundled-modules/*
-!/bundled-modules/hongguo/
+/bundled-modules/
 # Widget Preview related
 .widget_preview/
