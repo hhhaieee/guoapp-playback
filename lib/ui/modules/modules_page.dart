@@ -1745,25 +1745,6 @@ class _StatsPanel extends StatelessWidget {
         Text(label, style: caption),
       ],
     );
-    Widget action({
-      required IconData icon,
-      required String tip,
-      required bool enabled,
-      required VoidCallback onTap,
-    }) => Tooltip(
-      message: tip,
-      child: SizedBox(
-        width: 34,
-        child: IconButton(
-          icon: Icon(icon, size: 18),
-          color: colors.tertiary,
-          disabledColor: colors.onSurfaceVariant.withValues(alpha: 0.35),
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints.tightFor(width: 34, height: 34),
-          onPressed: enabled ? onTap : null,
-        ),
-      ),
-    );
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Container(
@@ -1781,17 +1762,47 @@ class _StatsPanel extends StatelessWidget {
             _divider(colors),
             cell(stopped, '未启动', colors.onSurfaceVariant),
             _divider(colors),
-            action(
-              icon: Icons.power_settings_new_rounded,
-              tip: '启动全部模块',
-              enabled: admin && stopped > 0,
-              onTap: () => onToggleAll(true),
-            ),
-            action(
-              icon: Icons.power_off_rounded,
-              tip: '关闭全部模块',
-              enabled: admin && started > 0,
-              onTap: () => onToggleAll(false),
+            // 单个副用按钮：弹出菜单提供「全启动模块 / 关闭全部模块」。
+            PopupMenuButton<bool>(
+              tooltip: admin ? '批量开关模块' : '需要管理员权限',
+              enabled: admin,
+              icon: const Icon(Icons.power_settings_new_rounded, size: 18),
+              color: colors.surface,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+              itemBuilder: (context) => [
+                PopupMenuItem<bool>(
+                  value: true,
+                  enabled: stopped > 0,
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.power_settings_new_rounded,
+                        size: 18,
+                        color: colors.tertiary,
+                      ),
+                      const SizedBox(width: 10),
+                      const Text('全启动模块'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem<bool>(
+                  value: false,
+                  enabled: started > 0,
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.power_off_rounded,
+                        size: 18,
+                        color: colors.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 10),
+                      const Text('关闭全部模块'),
+                    ],
+                  ),
+                ),
+              ],
+              onSelected: (value) => onToggleAll(value),
             ),
           ],
         ),
