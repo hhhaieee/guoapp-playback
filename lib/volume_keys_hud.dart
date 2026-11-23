@@ -16,30 +16,40 @@ class VolumeKeysHud extends ChangeNotifier {
 
   static const _channel = MethodChannel('duanju/volume');
 
-  bool _enabled = true;
+  // 非播放器页：交给 iOS 系统原生 HUD，不自绘、不监听。
+  // 播放器页：抑制系统 HUD，按设置用自绘胶囊接管。
+  bool _playerMode = false;
+  bool _hudEnabled = true;
   bool _visible = false;
   double _volume = 0;
   Timer? _hideTimer;
   int _suppressDepth = 0;
 
   bool get supported => defaultTargetPlatform == TargetPlatform.iOS;
-  bool get enabled => _enabled;
+  bool get enabled => _playerMode && _hudEnabled;
   bool get visible => _visible;
   double get volume => _volume;
 
   Future<dynamic> _handle(MethodCall call) async {
-    if (call.method == 'changed' && _enabled && _suppressDepth == 0) {
+    if (call.method == 'changed' && enabled && _suppressDepth == 0) {
       final args = call.arguments as Map? ?? const {};
       final value = (args['volume'] as num?)?.toDouble();
       if (value != null) show(value);
     }
   }
 
-  Future<void> setEnabled(bool value) async {
-    _enabled = value;
-    if (!value) hide();
+  /// 由播放器页在进入/退出时调用。进入时把用户是否开启自绘一并交给原生，
+  /// 原生据此决定是否抑制系统 HUD；非播放器页系统 HUD 正常显示。
+  Future<void> setPlayerMode(bool active, {required bool hudEnabled}) async {
+    _playerMode = active;
+    _hudEnabled = hudEnabled;
+    if (!enabled) hide();
+    if (!supported) return;
     try {
-      await _channel.invokeMethod<void>('setEnabled', {'enabled': value});
+      await _channel.invokeMethod<void>('setPlayerMode', {
+        'active': active,
+        'hud': hudEnabled,
+      });
     } catch (_) {}
   }
 
@@ -48,7 +58,9 @@ class VolumeKeysHud extends ChangeNotifier {
     _suppressDepth++;
     if (_suppressDepth == 1) {
       unawaited(
-        _channel.invokeMethod<void>('beginSuppressed').catchError((Object _) {}),
+        _channel
+            .invokeMethod<void>('beginSuppressed')
+            .catchError((Object _) {}),
       );
     }
   }

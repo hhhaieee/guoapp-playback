@@ -30,19 +30,17 @@ import LocalAuthentication
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     ZgjEnsureCoreLinked()
-    let launched = super.application(application, didFinishLaunchingWithOptions: launchOptions)
-    // 隐藏系统音量 HUD：把 MPVolumeView 挂到窗口（屏幕外），这样实体音量键
-    // 不再弹系统音量提示，改由 Flutter 侧的自定义小图标接管。
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-      self?.installSystemVolumeHudSuppressor()
-    }
-    return launched
+    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
-  private func installSystemVolumeHudSuppressor() {
-    guard volumeView.superview == nil else { return }
-    if let window = keyWindow {
+  /// 只在播放器内抑制系统音量 HUD（把 MPVolumeView 挂到屏幕外），
+  /// 其余页面放开系统 HUD，由 iOS 自己弹出音量图标。
+  private func setSystemHudSuppressed(_ suppressed: Bool) {
+    if suppressed {
+      guard volumeView.superview == nil, let window = keyWindow else { return }
       window.addSubview(volumeView)
+    } else {
+      volumeView.removeFromSuperview()
     }
   }
 
@@ -55,7 +53,10 @@ import LocalAuthentication
       nativePip = NativePictureInPicture(messenger: registrar.messenger())
     }
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "VolumeWatcher") {
-      volumeWatcher = VolumeKeyWatcher(messenger: registrar.messenger())
+      volumeWatcher = VolumeKeyWatcher(
+        messenger: registrar.messenger(),
+        setSystemHudSuppressed: { [weak self] in self?.setSystemHudSuppressed($0) },
+      )
     }
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "DeviceSettings") {
       let channel = FlutterMethodChannel(name: "duanju/device", binaryMessenger: registrar.messenger())
@@ -258,11 +259,7 @@ final class MediaControls {
     resumeAfterInterruption = false
     let center = MPNowPlayingInfoCenter.default()
     center.nowPlayingInfo = nil
-    // 离开播放器后切回不抢占的 ambient 会话，避免 playback 会话在无播放时被系统挂起，
-    // 导致非播放页面物理音量键不再改变 outputVolume、音量图标不显示。
-    let session = AVAudioSession.sharedInstance()
-    try? session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
-    try? session.setActive(true)
+    try? AVAudioSession.sharedInstance().setActive(false)
   }
 }
 
@@ -806,62 +803,53 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   }
 }
 
-// MARK: - 实体音量键提示（监听系统输出音量变化）
+// MARK: - 实体音量键提示（仅播放器内自绘，其余页面交给系统 HUD）
 final class VolumeKeyWatcher: NSObject {
   private let channel: FlutterMethodChannel
   private var observation: NSKeyValueObservation?
   private var volumeToken: NSObjectProtocol?
-  private var pollTimer: DispatchSourceTimer?
+  private let setSystemHudSuppressed: (Bool) -> Void
+  private var playerActive = false
   private var suppress = false
   private var lastVolume: Float = 0
-  private let volumeView = MPVolumeView(frame: CGRect(x: -100, y: -100, width: 1, height: 1))
-  private var resetWork: DispatchWorkItem?
 
-  init(messenger: FlutterBinaryMessenger) {
+  init(messenger: FlutterBinaryMessenger, setSystemHudSuppressed: @escaping (Bool) -> Void) {
     channel = FlutterMethodChannel(name: "duanju/volume", binaryMessenger: messenger)
+    self.setSystemHudSuppressed = setSystemHudSuppressed
     super.init()
     lastVolume = AVAudioSession.sharedInstance().outputVolume
-    // 关键：监听 AVSystemController_SystemVolumeDidChangeNotification 私有通知前，
-    // 必须先开启远程控制事件接收，否则该通知在部分设备/系统上收不到或飘忽不定。
+    // 监听 AVSystemController_SystemVolumeDidChangeNotification 私有通知前需要
+    // 先开启远程控制事件接收；播放器内会话活跃，该通知与 KVO 都稳定可靠。
     UIApplication.shared.beginReceivingRemoteControlEvents()
-    // 全局激活一个不抢占的音频会话：否则停留在首页等非播放页面时，
-    // 物理音量键改变的是铃声音量而非 outputVolume，轮询与通知都读不到变化，
-    // 导致自定义音量图标不显示。.ambient 会与其他 App 音频混音、不中断播放。
-    let session = AVAudioSession.sharedInstance()
-    try? session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
-    try? session.setActive(true)
-    // 物理音量键：只要收到系统音量变化通知就弹图标，不再依赖 reason 字段
-    // （音量到最大/最小后继续按同方向时，reason 可能不再是 ExplicitVolumeChange）。
     volumeToken = NotificationCenter.default.addObserver(
       forName: NSNotification.Name("AVSystemController_SystemVolumeDidChangeNotification"),
       object: nil,
       queue: .main
     ) { [weak self] _ in
-      guard let self, !self.suppress else { return }
+      guard let self, self.playerActive, !self.suppress else { return }
       let value = AVAudioSession.sharedInstance().outputVolume
       self.lastVolume = value
       self.emit(value)
-      self.scheduleBoundaryResetIfNeeded(value)
     }
-    // KVO 兜底：程序内（如 MPVolumeView）或路由变化导致的音量变化。
     observation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.new]) { [weak self] session, _ in
-      guard let self else { return }
+      guard let self, self.playerActive else { return }
       let value = session.outputVolume
       if abs(value - self.lastVolume) < 0.001 { return }
       self.lastVolume = value
       if self.suppress { return }
       self.emit(value)
-      self.scheduleBoundaryResetIfNeeded(value)
     }
-    // 会话挂起（离开播放器后无音频播放）时，上面的通知/KVO 不再可靠。
-    // 定时器主动读取 outputVolume 作为兜底，保证非播放器页面按键仍能弹出图标。
-    pollTimer = makePollTimer()
-    pollTimer?.resume()
     channel.setMethodCallHandler { [weak self] call, result in
       guard let self else { result(nil); return }
       switch call.method {
-      case "setEnabled":
-        // enabled 状态由 Flutter 侧维护，这里仅应答。
+      case "setPlayerMode":
+        let args = call.arguments as? [String: Any] ?? [:]
+        let active = args["active"] as? Bool ?? false
+        let hudEnabled = args["hud"] as? Bool ?? true
+        let useCustomHud = active && hudEnabled
+        self.playerActive = useCustomHud
+        self.lastVolume = AVAudioSession.sharedInstance().outputVolume
+        self.setSystemHudSuppressed(useCustomHud)
         result(nil)
       case "beginSuppressed", "endSuppressed":
         self.suppress = call.method == "beginSuppressed"
@@ -875,62 +863,6 @@ final class VolumeKeyWatcher: NSObject {
   }
 
   private func emit(_ value: Float) {
-    channel.invokeMethod("changed", arguments: [
-      "volume": Double(value),
-      "enabled": true,
-    ])
-  }
-
-  /// 主动轮询兜底：脱离音频会话也能读到系统音量，避免离开播放器后
-  /// 通知/KVO 因会话挂起而不再触发，导致非播放器页面按键无图标。
-  private func makePollTimer() -> DispatchSourceTimer {
-    let timer = DispatchSource.makeTimerSource(queue: .main)
-    timer.schedule(deadline: .now() + 0.3, repeating: 0.3)
-    timer.setEventHandler { [weak self] in
-      guard let self, !self.suppress else { return }
-      let value = AVAudioSession.sharedInstance().outputVolume
-      if abs(value - self.lastVolume) < 0.001 { return }
-      self.lastVolume = value
-      self.emit(value)
-      self.scheduleBoundaryResetIfNeeded(value)
-    }
-    return timer
-  }
-
-  /// 音量到顶/到底后，系统不再改变音量，继续按同方向实体键不会再发
-  /// `AVSystemController_SystemVolumeDidChangeNotification`。这里在到达边界的瞬间
-  /// 安排一次「往内微调一档」，保证下一次按键仍能触发通知、弹出音量提示图标。
-  private func scheduleBoundaryResetIfNeeded(_ value: Float) {
-    guard value >= 0.995 || value <= 0.005 else { return }
-    resetWork?.cancel()
-    let target: Float = value >= 0.995 ? 0.97 : 0.03
-    let work = DispatchWorkItem { [weak self] in
-      guard let self else { return }
-      self.suppress = true
-      self.setSystemVolume(target)
-      self.lastVolume = target
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-        self?.suppress = false
-      }
-    }
-    resetWork = work
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
-  }
-
-  private func setSystemVolume(_ value: Float) {
-    installVolumeView()
-    if let slider = volumeView.subviews.first(where: { $0 is UISlider }) as? UISlider {
-      slider.value = value
-    }
-  }
-
-  private func installVolumeView() {
-    if volumeView.superview != nil { return }
-    if let window = UIApplication.shared.connectedScenes
-      .compactMap({ $0 as? UIWindowScene })
-      .flatMap({ $0.windows })
-      .first(where: { $0.isKeyWindow }) {
-      window.addSubview(volumeView)
-    }
+    channel.invokeMethod("changed", arguments: ["volume": Double(value)])
   }
 }

@@ -226,10 +226,6 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
   }
 
   Widget _application(LocalStore? store) {
-    final volumeHud = store?.playbackPreferences.volumeKeysHud ?? true;
-    if (VolumeKeysHud.instance.enabled != volumeHud) {
-      unawaited(VolumeKeysHud.instance.setEnabled(volumeHud));
-    }
     _resetRoutes(store);
     final formFactor = switch (store?.displayMode) {
       'television' => FormFactor.television,

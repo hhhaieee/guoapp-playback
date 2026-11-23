@@ -10,6 +10,7 @@ import '../../ios_picture_in_picture.dart';
 import '../../local_store.dart';
 import '../../picture_in_picture.dart';
 import '../../playback_session.dart';
+import '../../volume_keys_hud.dart';
 import '../app_scope.dart';
 import 'audio_player_page.dart';
 import 'landscape_player_page.dart';
@@ -67,6 +68,12 @@ class _PlaybackPageState extends State<PlaybackPage> {
   @override
   void initState() {
     super.initState();
+    unawaited(
+      VolumeKeysHud.instance.setPlayerMode(
+        true,
+        hudEnabled: widget.store.playbackPreferences.volumeKeysHud,
+      ),
+    );
     _session.addListener(_changed);
     _padFullscreen.addListener(_padFullscreenChanged);
     _pip.addListener(_pipChanged);
@@ -81,6 +88,7 @@ class _PlaybackPageState extends State<PlaybackPage> {
 
   @override
   void dispose() {
+    unawaited(VolumeKeysHud.instance.setPlayerMode(false, hudEnabled: true));
     _session.removeListener(_changed);
     _pip.removeListener(_pipChanged);
     if (_pip.onAction == _action) _pip.onAction = null;
