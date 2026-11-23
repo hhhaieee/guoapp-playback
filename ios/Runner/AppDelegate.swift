@@ -609,9 +609,10 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
         // 关键：AVPlayer 必须以 rate>0 真正播放，AVPlayerLayer 才会渲染出首帧，
         // isReadyForDisplay 才会变 true，PiP 才可能启动。rate=0 永远不会渲染，
         // 这正是上一版「离开后画中画完全不出现」的根因。
-        // 预热模式（autoplay=false）改用 isMuted 静音：既渲染画面，又不与本地播放器双重出声。
+        // 统一先静音渲染（手动进入与预热都静音）：PiP 真正启动前不能让独立
+        // AVPlayer 出声，否则会与页面内播放器双重播放。didStart 回调里再统一取消静音。
         newPlayer.rate = Float(self.lastRate)
-        newPlayer.isMuted = !autoplay
+        newPlayer.isMuted = true
         self.waitForDisplayThenStart(autoplay: autoplay)
       }
     }

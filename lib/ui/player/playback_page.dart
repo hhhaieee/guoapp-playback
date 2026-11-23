@@ -387,8 +387,13 @@ class _PlaybackPageState extends State<PlaybackPage> {
         if (ok) {
           _closeRoutesAbove();
           _session.setLocked(false);
-          // 暂停本地播放器移到 _iosPipState(active=true) 回调：只有系统 PiP
-          // 真正启动后才暂停，避免 PiP 未启动时点击画中画却把视频暂停。
+          // 立即暂停本地播放器，把画面与声音交给画中画的独立 AVPlayer 接管：
+          // 若等 _iosPipState(active=true) 回调才暂停，PiP 启动前的窗口里原画面
+          // 会与画中画同时播放。PiP 启动失败时由 _iosPipState 恢复播放。
+          _session.setForeground(false);
+          if (_session.player.state.playing) {
+            unawaited(_session.player.pause());
+          }
           return;
         }
       }

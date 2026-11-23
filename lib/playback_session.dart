@@ -1153,6 +1153,10 @@ class PlaybackSession extends ChangeNotifier {
 
   void togglePlayback() {
     if (!_usable || !ready) return;
+    // 系统画中画激活期间，本地播放器已暂停并把画面交给画中画的独立 AVPlayer。
+    // 此时屏蔽「恢复播放」方向的误触（页面上点画面/播放键），否则本地播放器
+    // 会被重新拉起，与画中画同时出声。暂停方向与切集命令不受影响。
+    if (_pipActive && !player.state.playing) return;
     endBoost();
     _playIntent = !player.state.playing;
     _health.reset();
