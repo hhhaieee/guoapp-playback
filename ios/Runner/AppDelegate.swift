@@ -72,7 +72,7 @@ private func notifyVolumeSessionWillActivate() {
     let selector = NSSelectorFromString("_setAlternateIconName:withCompletionHandler:")
     if UIApplication.shared.responds(to: selector) {
       typealias PrivateMethod = @convention(c) (UIApplication, Selector, NSString?, Any?) -> Void
-      let implementation = class_getMethodImplementation(UIApplication.self, selector)
+      let implementation = UIApplication.shared.method(for: selector)
       let method = unsafeBitCast(implementation, to: PrivateMethod.self)
       let completion: @convention(block) (NSError?) -> Void = { error in finish(error) }
       method(UIApplication.shared, selector, name as NSString?, completion)

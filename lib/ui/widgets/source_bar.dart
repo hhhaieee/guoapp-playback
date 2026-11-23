@@ -179,7 +179,7 @@ class SourceBar extends StatelessWidget {
                         child: InkWell(
                           onTap: onMoreSources ?? () => onSwitchSource(context),
                           child: ColorFiltered(
-                            filter: _ballTint(
+                            colorFilter: _ballTint(
                               Theme.of(context).colorScheme.primary,
                             ),
                             child: Image.asset(

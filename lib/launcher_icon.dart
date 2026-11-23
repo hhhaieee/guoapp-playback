@@ -21,7 +21,7 @@ class AppLauncherIcon {
     if (_requested == name) return;
     _requested = name;
     final preferences = await SharedPreferences.getInstance();
-    if (await preferences.getString(_key) == name) return;
+    if (preferences.getString(_key) == name) return;
     try {
       await _channel.invokeMethod<void>('setLauncherIcon', {'name': name});
     } on MissingPluginException {
