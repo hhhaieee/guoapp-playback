@@ -1,8 +1,8 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 
+import '../../core_bridge.dart';
 import '../../models.dart';
+import '../../theme_color.dart';
 import '../app_scope.dart';
 import 'bar_button.dart';
 import 'page_header.dart';
@@ -178,17 +178,12 @@ class SourceBar extends StatelessWidget {
                         color: Colors.transparent,
                         child: InkWell(
                           onTap: onMoreSources ?? () => onSwitchSource(context),
-                          child: ColorFiltered(
-                            colorFilter: _ballTint(
-                              Theme.of(context).colorScheme.primary,
-                            ),
-                            child: Image.asset(
-                              'assets/images/star_ball.png',
-                              width: 34,
-                              height: 34,
-                              fit: BoxFit.cover,
-                              filterQuality: FilterQuality.high,
-                            ),
+                          child: Image.asset(
+                            _ballAsset(context),
+                            width: 34,
+                            height: 34,
+                            fit: BoxFit.cover,
+                            filterQuality: FilterQuality.high,
                           ),
                         ),
                       ),
@@ -297,34 +292,36 @@ class _SourceChipsState extends State<_SourceChips> {
   }
 }
 
-ColorFilter _ballTint(Color primary) {
-  final hue = HSLColor.fromColor(primary);
-  if (hue.saturation < 0.12) {
-    return ColorFilter.matrix(_saturationMatrix(0.12));
+/// 星气球按主题色号选预生成图片：星星始终保持纯白，只有球体换色。
+/// 跟随系统取色时按主色的色相/饱和度匹配最接近的主题球。
+String _ballAsset(BuildContext context) {
+  final repo = AppScope.of(context).repository;
+  final store = repo is NativeRepository ? repo.access : null;
+  ThemeColor? color;
+  if (store != null && !store.followSystemColor) {
+    color = store.themeColor;
+  } else {
+    // 跟随系统色：用主题主色与系统主色的色相距离选最接近的球。
+    final primary = HSLColor.fromColor(Theme.of(context).colorScheme.primary);
+    if (primary.saturation < 0.15) {
+      color = ThemeColor.white;
+    } else {
+      var best = double.infinity;
+      for (final candidate in ThemeColor.values) {
+        if (candidate == ThemeColor.white) continue;
+        final seed = HSLColor.fromColor(Color(candidate.seed));
+        var diff = (seed.hue - primary.hue).abs();
+        if (diff > 180) diff = 360 - diff;
+        if (diff < best) {
+          best = diff;
+          color = candidate;
+        }
+      }
+    }
   }
-  return ColorFilter.matrix(_hueRotateMatrix((hue.hue - 190) * pi / 180));
-}
-
-List<double> _saturationMatrix(double saturation) {
-  const lr = 0.213, lg = 0.715, lb = 0.072;
-  final keep = 1 - saturation;
-  return <double>[
-    lr * keep + saturation, lg * keep, lb * keep, 0, 0,
-    lr * keep, lg * keep + saturation, lb * keep, 0, 0,
-    lr * keep, lg * keep, lb * keep + saturation, 0, 0,
-    0, 0, 0, 1, 0,
-  ];
-}
-
-List<double> _hueRotateMatrix(double angle) {
-  final c = cos(angle);
-  final s = sin(angle);
-  return <double>[
-    0.213 + c * 0.787 - s * 0.213, 0.715 - c * 0.715 - s * 0.715, 0.072 - c * 0.072 + s * 0.072, 0, 0,
-    0.213 - c * 0.213 + s * 0.143, 0.715 + c * 0.285 + s * 0.140, 0.072 - c * 0.072 - s * 0.283, 0, 0,
-    0.213 - c * 0.213 - s * 0.787, 0.715 - c * 0.715 + s * 0.715, 0.072 + c * 0.072 + s * 0.072, 0, 0,
-    0, 0, 0, 1, 0,
-  ];
+  final selected = color ?? ThemeColor.star;
+  if (selected == ThemeColor.star) return 'assets/images/star_ball.png';
+  return 'assets/images/star_ball_${selected.name}.png';
 }
 
 class _RecentSearchField extends StatefulWidget {

@@ -18,10 +18,9 @@ class AppLauncherIcon {
     final name = color == null || color == ThemeColor.star
         ? 'star'
         : color.name;
+    // 未正式切入原生方法前不写偏好，避免旧包失败记录阻塞升级后的重试。
     if (_requested == name) return;
     _requested = name;
-    final preferences = await SharedPreferences.getInstance();
-    if (preferences.getString(_key) == name) return;
     try {
       await _channel.invokeMethod<void>('setLauncherIcon', {'name': name});
     } on MissingPluginException {
@@ -30,6 +29,9 @@ class AppLauncherIcon {
       _requested = null;
       return;
     }
-    await preferences.setString(_key, name);
+    final preferences = await SharedPreferences.getInstance();
+    if (preferences.getString(_key) != name) {
+      await preferences.setString(_key, name);
+    }
   }
 }

@@ -60,7 +60,7 @@ private func notifyVolumeSessionWillActivate() {
   }
 
   private func applyAlternateIcon(_ name: String?, result: @escaping FlutterResult) {
-    let finish: (Error?) -> Void = { error in
+    func finish(_ error: Error?) {
       DispatchQueue.main.async {
         if let error = error {
           result(FlutterError(code: "icon_switch_failed", message: error.localizedDescription, details: nil))
@@ -69,12 +69,19 @@ private func notifyVolumeSessionWillActivate() {
         }
       }
     }
+    // 侧载包优先用私有接口免系统弹窗；失败（接口变更/签名不符）时回退公开 API。
     let selector = NSSelectorFromString("_setAlternateIconName:withCompletionHandler:")
     if UIApplication.shared.responds(to: selector) {
       typealias PrivateMethod = @convention(c) (UIApplication, Selector, NSString?, Any?) -> Void
       let implementation = UIApplication.shared.method(for: selector)
       let method = unsafeBitCast(implementation, to: PrivateMethod.self)
-      let completion: @convention(block) (NSError?) -> Void = { error in finish(error) }
+      let completion: @convention(block) (NSError?) -> Void = { error in
+        if error != nil {
+          UIApplication.shared.setAlternateIconName(name) { publicError in finish(publicError) }
+        } else {
+          finish(nil)
+        }
+      }
       method(UIApplication.shared, selector, name as NSString?, completion)
     } else {
       UIApplication.shared.setAlternateIconName(name) { error in finish(error) }
