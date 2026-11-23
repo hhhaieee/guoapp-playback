@@ -297,6 +297,9 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   // 手动点按钮（前台）启动 PiP 时置 true，用于区分系统自动启动的失败：
   // 手动失败才回传错误置灰，系统自动失败静默（后台用户看不到，交给系统自行处理）。
   private var manualEnter = false
+  // 切后台兜底监听 token：图层已预热就绪时主动补调一次启动，弥补系统自动
+  // canStartPictureInPictureAutomaticallyFromInline 对隐藏假图层不认、不触发的问题。
+  private var autoStartToken: NSObjectProtocol?
   // 预热：前台播放时就建好 AVPlayer/Layer 并渲染就绪，离开时可直接启动 PiP，
   // 避免在 willResignActive 才临时建 layer、等渲染，却因马上进后台而卡住。
   private var prepared = false
@@ -316,10 +319,23 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     channel = FlutterMethodChannel(name: "duanju/pip", binaryMessenger: messenger)
     mediaChannel = FlutterMethodChannel(name: "duanju/media", binaryMessenger: messenger)
     super.init()
-    // 自动画中画完全交给系统官方机制：prepare() 里设置
-    // canStartPictureInPictureAutomaticallyFromInline = true，由 iOS 在用户离开
-    // App 的恰当时机自动提升为 PiP。不再手动监听 willResignActive 抢时机启动，
-    // 根治手动 startPictureInPicture 在后台过渡态频繁 -1001 失败的问题。
+    // 自动画中画双保险：
+    // ① prepare() 里设置 canStartPictureInPictureAutomaticallyFromInline = true，
+    //    由 iOS 官方机制在离开 App 时自动提升为 PiP（首选，时机最可靠）。
+    // ② 监听 willResignActive 做兜底：系统自动机制对「隐藏的假图层」可能不认、
+    //    不触发（本项目中 2×2 极透明图层就属于这种情况）。图层若已在前台预热
+    //    渲染就绪，此时直接调一次启动，成功率和手动按钮同级。
+    // 两层用 isPictureInPictureActive 去重，谁先成功都不重复启动；兜底失败由
+    // delegate 静默处理（manualEnter=false 时不回传、不置灰），不打扰用户。
+    autoStartToken = NotificationCenter.default.addObserver(
+      forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
+    ) { [weak self] _ in
+      guard let self,
+            self.prepared,
+            !self.manualEnter,
+            self.pipController?.isPictureInPictureActive != true else { return }
+      self.startPictureInPicture()
+    }
     channel.setMethodCallHandler { [weak self] call, result in
       guard let self else { result(nil); return }
       switch call.method {
@@ -756,6 +772,12 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
       "error": "\(reason)（\(ns.domain) \(ns.code)）",
     ])
     cleanup()
+  }
+
+  deinit {
+    if let token = autoStartToken {
+      NotificationCenter.default.removeObserver(token)
+    }
   }
 }
 
