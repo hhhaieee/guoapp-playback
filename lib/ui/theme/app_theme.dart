@@ -78,6 +78,27 @@ abstract final class AppTheme {
         space: 1,
         thickness: 1,
       ),
+      // 提示条跟随 App 主题：不用 Material 默认的反转色（深色主题下会弹出白条），
+      // 改用主题容器色——深色主题为深蓝/深灰，浅色主题自动为浅色；文字与
+      // 「撤销」等操作按钮也取主题语义色，保证任何主题下都协调、可读。
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: scheme.surfaceContainerHighest,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        contentTextStyle: TextStyle(
+          color: scheme.onSurface,
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+        ),
+        actionTextStyle: TextStyle(
+          color: scheme.primary,
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
     );
     final titled = theme.copyWith(
       appBarTheme: theme.appBarTheme.copyWith(
