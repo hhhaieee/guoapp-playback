@@ -277,12 +277,10 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   private var lastRate = 1.0
   private var kvoToken: NSKeyValueObservation?
   private var pendingSeek: CMTime?
-  private var startAttempt = 0
   private var displayToken: NSKeyValueObservation?
-  private var lastPipError: String?
-  private var autoArmed = false
-  private var autoArgs: [String: Any] = [:]
-  private var autoObserver: NSObjectProtocol?
+  // 手动点按钮（前台）启动 PiP 时置 true，用于区分系统自动启动的失败：
+  // 手动失败才回传错误置灰，系统自动失败静默（后台用户看不到，交给系统自行处理）。
+  private var manualEnter = false
   // 预热：前台播放时就建好 AVPlayer/Layer 并渲染就绪，离开时可直接启动 PiP，
   // 避免在 willResignActive 才临时建 layer、等渲染，却因马上进后台而卡住。
   private var prepared = false
@@ -302,16 +300,10 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     channel = FlutterMethodChannel(name: "duanju/pip", binaryMessenger: messenger)
     mediaChannel = FlutterMethodChannel(name: "duanju/media", binaryMessenger: messenger)
     super.init()
-    // 「离开应用时自动画中画」：在 App 即将失去活跃（进入后台/锁屏）的瞬间
-    // 启动系统画中画。此时场景仍处于可启动 PiP 的过渡态，成功率最高。
-    // layer 已在前台由 armAuto 预热渲染就绪，这里直接启动即可。
-    autoObserver = NotificationCenter.default.addObserver(
-      forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
-    ) { [weak self] _ in
-      guard let self, self.autoArmed,
-            !(self.pipController?.isPictureInPictureActive ?? false) else { return }
-      self.startAuto()
-    }
+    // 自动画中画完全交给系统官方机制：prepare() 里设置
+    // canStartPictureInPictureAutomaticallyFromInline = true，由 iOS 在用户离开
+    // App 的恰当时机自动提升为 PiP。不再手动监听 willResignActive 抢时机启动，
+    // 根治手动 startPictureInPicture 在后台过渡态频繁 -1001 失败的问题。
     channel.setMethodCallHandler { [weak self] call, result in
       guard let self else { result(nil); return }
       switch call.method {
@@ -342,11 +334,10 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   }
 
   /// 前台播放中调用：提前建好 AVPlayer/Layer 并渲染就绪（静音待命），
-  /// 这样 willResignActive 时可直接启动 PiP，不必等渲染导致卡在后台。
+  /// 让系统 canStartPictureInPictureAutomaticallyFromInline 在离开 App 时可秒开。
   private func armAuto(_ args: [String: Any]) {
-    autoArgs = args
-    autoArmed = !args.isEmpty
-    guard autoArmed else { return }
+    manualEnter = false
+    guard !args.isEmpty else { return }
     let url = args["url"] as? String ?? ""
     // 地址没变且已预热：只更新进度/倍速，不重建 layer（切集时由 switchSource 换源）。
     // 带 seek 标记让预热 player 的进度跟随本地播放器，离开时从正确位置开播。
@@ -360,8 +351,6 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   }
 
   private func disarmAuto() {
-    autoArmed = false
-    autoArgs = [:]
     prepared = false
     preparedUrl = nil
     // 未真正进入 PiP 时，回收预热用的播放器/layer。
@@ -474,27 +463,15 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     return scenes.flatMap { $0.windows }.first(where: { $0.isKeyWindow })
   }
 
-  /// 手动点画中画按钮：完整准备并立即启动 PiP。
+  /// 手动点画中画按钮：完整准备并立即启动 PiP（前台时机，成功率高）。
   private func enter(_ args: [String: Any]) {
+    manualEnter = true
     prepare(args, autoplay: true)
   }
 
-  /// App 即将失活时启动预热的 PiP：layer 已在前台渲染就绪，直接开播。
-  private func startAuto() {
-    guard let player, prepared else {
-      // 预热尚未完成（例如刚进入播放就立刻离开），降级走完整启动流程。
-      enter(autoArgs)
-      return
-    }
-    prepareAudio()
-    // 预热时是静音渲染的，真正进入 PiP 前必须取消静音，否则画中画没声音。
-    player.isMuted = false
-    player.rate = Float(lastRate)
-    startPictureInPicture()
-  }
-
-  /// 准备独立 AVPlayer/Layer。autoplay=false 时只预热渲染、静音待命，
-  /// 供 willResignActive 时秒开；autoplay=true 时渲染完成后立即启动 PiP。
+  /// 准备独立 AVPlayer/Layer。autoplay=false 时由 armAuto 预热渲染、静音待命，
+  /// 交给系统 canStartPictureInPictureAutomaticallyFromInline 在离开 App 时自动启动；
+  /// autoplay=true 时（手动按钮）渲染完成后立即启动 PiP。
   private func prepare(_ args: [String: Any], autoplay: Bool) {
     guard AVPictureInPictureController.isPictureInPictureSupported(),
           let urlString = args["url"] as? String,
@@ -549,9 +526,9 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     if #available(iOS 15.0, *),
        let controller = AVPictureInPictureController(playerLayer: layer) {
       controller.delegate = self
-      // 双保险：交给系统在离开 App 时自动启动 PiP（Apple 官方机制，时机最可靠），
-      // 同时保留 willResignActive 的手动 startAuto 作为兜底。两者都以
-      // isPictureInPictureActive 去重，不会重复启动。
+      // 自动画中画唯一入口：交给系统在离开 App 时启动（Apple 官方机制，
+      // 由系统掌握最佳时机，成功率最高）。预热 layer 已在前台渲染就绪，
+      // 系统据此在切后台时自动提升为 PiP。
       controller.canStartPictureInPictureAutomaticallyFromInline = true
       self.pipController = controller
     } else {
@@ -615,7 +592,7 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
       if autoplay { startPictureInPicture() } else { prepared = true }
       return
     }
-    // 预热模式下图层就绪即标记完成，不启动 PiP；离开时由 startAuto 直接启动。
+    // 预热模式下图层就绪即标记完成，由系统在离开 App 时自动启动 PiP。
     let onReady = { [weak self] in
       guard let self else { return }
       if autoplay {
@@ -653,56 +630,14 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     }
   }
 
-  /// 阶梯重试启动 PiP：不依赖 isPictureInPicturePossible（该标志可能很晚才变
-  /// true），直接调用 startPictureInPicture，失败通过 delegate 回调记录，靠
-  /// 阶梯重试直到窗口真正弹出，规避 -1001。
+  /// 手动按钮启动 PiP（前台时机）。图层已渲染出首帧才调用，避免 -1001。
+  /// 自动 PiP 不走这里：由系统 canStartPictureInPictureAutomaticallyFromInline
+  /// 在最合适的时机自行启动，成功率远高于手动抢 willResignActive 过渡态。
   private func startPictureInPicture() {
-    guard let controller = pipController else { return }
-    if controller.isPictureInPictureActive { return }
-    // 图层必须真正渲染出画面，AVKit 才允许启动 PiP；未就绪时继续等待，
-    // 而不是盲目 startPictureInPicture 触发 -1001。
-    if playerLayer?.isReadyForDisplay != true {
-      scheduleRetry()
-      return
-    }
+    guard let controller = pipController,
+          !controller.isPictureInPictureActive,
+          playerLayer?.isReadyForDisplay == true else { return }
     controller.startPictureInPicture()
-    scheduleRetry()
-  }
-
-  private func scheduleRetry() {
-    let delays: [Double] = [0.35, 0.6, 0.9, 1.2, 1.5, 1.8, 2.2, 2.6]
-    guard startAttempt < delays.count else {
-      let reason = lastPipError ?? pipDiagnostics()
-      channel.invokeMethod("state", arguments: [
-        "active": false,
-        "error": reason,
-      ])
-      cleanup()
-      return
-    }
-    let delay = delays[startAttempt]
-    startAttempt += 1
-    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-      guard let self else { return }
-      if self.pipController?.isPictureInPictureActive != true {
-        self.startPictureInPicture()
-      }
-    }
-  }
-
-  /// 重试耗尽仍未启动时，把关键状态一起回传，便于定位「场景未激活 / 图层未渲染」等根因。
-  private func pipDiagnostics() -> String {
-    var parts: [String] = []
-    if let controller = pipController {
-      parts.append("possible=\(controller.isPictureInPicturePossible)")
-    }
-    if let scene = UIApplication.shared.connectedScenes
-      .compactMap({ $0 as? UIWindowScene })
-      .first {
-      parts.append("scene=\(scene.activationState.rawValue)")
-    }
-    parts.append("layerReady=\(playerLayer?.isReadyForDisplay == true)")
-    return "系统未能启动画中画（\(parts.joined(separator: ", "))）"
   }
 
   private var pipHost: UIView?
@@ -738,8 +673,6 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
     kvoToken = nil
     displayToken = nil
     pendingSeek = nil
-    startAttempt = 0
-    lastPipError = nil
     prepared = false
     preparedUrl = nil
     player?.pause()
@@ -771,7 +704,7 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   }
 
   func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-    // PiP 真正启动的统一回调点：系统自动启动与手动 startAuto 都会经过这里。
+    // PiP 真正启动的统一回调点：系统自动启动与手动按钮都会经过这里。
     // 预热阶段是静音渲染的，这里统一取消静音，确保画中画有声音。
     player?.isMuted = false
     startRateObservation()
@@ -794,12 +727,17 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
   }
 
   func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error) {
-    // 不立即 cleanup：保留 player/layer，交给阶梯重试继续尝试；最终失败由
-    // scheduleRetry 重试耗尽时统一回传错误并清理。这里记下底层失败原因，
-    // 便于把 AVKit 的真实诊断（如场景未激活/图层未上屏）回传给用户定位。
+    // 自动 PiP（系统后台启动）失败：静默处理，不打断用户、不置灰按钮——
+    // 系统可能在后续时机自行重试成功，抢报失败只会误伤。
+    guard manualEnter else { return }
+    // 手动按钮（前台）失败：回传错误，由页面把按钮置灰。
     let ns = error as NSError
     let reason = ns.localizedFailureReason ?? ns.localizedDescription
-    lastPipError = "\(reason)（\(ns.domain) \(ns.code)）"
+    channel.invokeMethod("state", arguments: [
+      "active": false,
+      "error": "\(reason)（\(ns.domain) \(ns.code)）",
+    ])
+    cleanup()
   }
 }
 
@@ -812,6 +750,9 @@ final class VolumeKeyWatcher: NSObject {
   private var playerActive = false
   private var suppress = false
   private var lastVolume: Float = 0
+  // 进入播放器后的短暂静默期：吸收首页残留的音量变化通知/KVO，避免
+  // "刚进播放器图标就自己跳出来"。静默期内只更新基准值，不弹自绘图标。
+  private var quietUntil: Date = .distantPast
 
   init(messenger: FlutterBinaryMessenger, setSystemHudSuppressed: @escaping (Bool) -> Void) {
     channel = FlutterMethodChannel(name: "duanju/volume", binaryMessenger: messenger)
@@ -829,6 +770,8 @@ final class VolumeKeyWatcher: NSObject {
       guard let self, self.playerActive, !self.suppress else { return }
       let value = AVAudioSession.sharedInstance().outputVolume
       self.lastVolume = value
+      // 静默期内只吞掉残留事件，不弹图标（用户视线已切到播放器，没在按音量键）。
+      guard Date() >= self.quietUntil else { return }
       self.emit(value)
     }
     observation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.new]) { [weak self] session, _ in
@@ -836,6 +779,7 @@ final class VolumeKeyWatcher: NSObject {
       let value = session.outputVolume
       if abs(value - self.lastVolume) < 0.001 { return }
       self.lastVolume = value
+      guard Date() >= self.quietUntil else { return }
       if self.suppress { return }
       self.emit(value)
     }
@@ -849,6 +793,12 @@ final class VolumeKeyWatcher: NSObject {
         let useCustomHud = active && hudEnabled
         self.playerActive = useCustomHud
         self.lastVolume = AVAudioSession.sharedInstance().outputVolume
+        // 进入播放器（且启用自绘）后开 0.8s 静默期：切页瞬间可能有首页残留的
+        // 音量变化事件陆续到达，这段时间内只更新基准、不弹图标，避免刚进播放器
+        // 图标就自己跳出来打断观看。退出播放器时不设静默期，恢复即时响应。
+        self.quietUntil = useCustomHud
+          ? Date().addingTimeInterval(0.8)
+          : .distantPast
         self.setSystemHudSuppressed(useCustomHud)
         result(nil)
       case "beginSuppressed", "endSuppressed":

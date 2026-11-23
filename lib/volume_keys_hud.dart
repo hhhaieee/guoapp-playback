@@ -43,7 +43,9 @@ class VolumeKeysHud extends ChangeNotifier {
   Future<void> setPlayerMode(bool active, {required bool hudEnabled}) async {
     _playerMode = active;
     _hudEnabled = hudEnabled;
-    if (!enabled) hide();
+    // 进出播放器都强制收起上一次的图标，避免切页瞬间残留的可见态一闪而过；
+    // 配合原生的静默期，彻底消除"刚进播放器图标自己跳出来"的观感。
+    hide();
     if (!supported) return;
     try {
       await _channel.invokeMethod<void>('setPlayerMode', {
