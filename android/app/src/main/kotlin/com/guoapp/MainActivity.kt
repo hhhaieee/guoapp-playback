@@ -343,32 +343,6 @@ class MainActivity : FlutterActivity() {
                             val version = packageManager.getPackageInfo(packageName, 0).versionName
                             result.success(mapOf("television" to isTelevisionDevice(), "version" to version))
                         }
-                        "setLauncherIcon" -> {
-                            val name = call.argument<String>("name") ?: "star"
-                            val aliases = listOf(
-                                "star", "white", "orange", "rose",
-                                "amber", "teal", "blue", "violet",
-                            )
-                            if (name !in aliases) {
-                                result.error("invalid_launcher_icon", "未知桌面图标主题", null)
-                            } else {
-                                for (alias in aliases) {
-                                    val component = ComponentName(
-                                        packageName,
-                                        "$packageName.Launcher${alias.replaceFirstChar { it.uppercase() }}",
-                                    )
-                                    val state =
-                                        if (alias == name) PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-                                        else PackageManager.COMPONENT_ENABLED_STATE_DISABLED
-                                    packageManager.setComponentEnabledSetting(
-                                        component,
-                                        state,
-                                        PackageManager.DONT_KILL_APP,
-                                    )
-                                }
-                                result.success(null)
-                            }
-                        }
                         "setTelevisionMode" -> {
                             val enabled = call.argument<Boolean>("enabled")
                             if (enabled == null) {

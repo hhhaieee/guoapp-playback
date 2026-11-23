@@ -8,7 +8,6 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import '../app_build.dart';
 import '../app_device.dart';
 import '../core_bridge.dart';
-import '../launcher_icon.dart';
 import '../local_store.dart';
 import '../theme_color.dart';
 import '../volume_keys_hud.dart';
@@ -244,9 +243,6 @@ class _DuanjuAppState extends State<DuanjuApp> with WidgetsBindingObserver {
       _coverBlur ??= store.blurCoversButton
           ? CoverBlur.values.byName(store.blurCoversLaunch)
           : CoverBlur.off;
-      unawaited(
-        AppLauncherIcon.sync(store.followSystemColor ? null : store.themeColor),
-      );
     }
     final coverBlur = _coverBlur ?? CoverBlur.off;
     final systemColor = (store?.followSystemColor ?? true)
