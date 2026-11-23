@@ -419,6 +419,23 @@ class LocalStore extends ChangeNotifier {
     });
   }
 
+  /// 批量启用/停用站源（一次写入，供「全启动 / 全关闭」使用）。
+  /// [sources] 中的 id 会先经有效性过滤；无效 id 直接忽略，不报错。
+  Future<void> setSourcesEnabled(Iterable<String> sources, bool enabled) {
+    final ids = sources.where(validSourceId).toSet();
+    if (ids.isEmpty) return Future.value();
+    final epoch = _epoch;
+    return _queue(() async {
+      _requireAdmin();
+      if (epoch != _epoch) throw StateError('当前用户已变更，请重试');
+      final switches = {..._map(_settings['sourceSwitches'])};
+      for (final id in ids) {
+        switches[id] = enabled;
+      }
+      await _saveSettings({..._settings, 'sourceSwitches': switches});
+    });
+  }
+
   List<String> get sourceOrder =>
       _list(_settings['sourceOrder']).whereType<String>().toList();
 

@@ -774,14 +774,14 @@ final class VolumeKeyWatcher: NSObject {
       guard Date() >= self.quietUntil else { return }
       self.emit(value)
     }
+    // KVO 只同步基准值，绝不弹图标：进入播放器会激活 .playback 音频会话，
+    // setCategory/setActive 本身就会改变 outputVolume 触发 KVO（且常晚于静默期），
+    // 若据此 emit 就会出现「首页按过音量、刚进视频图标自己跳出来」。
+    // 物理音量键弹图标完全交给下面的 AVSystemController 通知——它由真实按键
+    // 触发，不会被会话激活/音量重置误报。
     observation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.new]) { [weak self] session, _ in
-      guard let self, self.playerActive else { return }
-      let value = session.outputVolume
-      if abs(value - self.lastVolume) < 0.001 { return }
-      self.lastVolume = value
-      guard Date() >= self.quietUntil else { return }
-      if self.suppress { return }
-      self.emit(value)
+      guard let self else { return }
+      self.lastVolume = session.outputVolume
     }
     channel.setMethodCallHandler { [weak self] call, result in
       guard let self else { result(nil); return }

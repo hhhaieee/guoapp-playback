@@ -330,6 +330,38 @@ class _ModulesPageState extends State<ModulesPage>
       ? (value) => _toggle(module, value)
       : null;
 
+  /// 统计面板的「全启动 / 全关闭」：对当前所有已安装且可操作的模块批量设开关。
+  /// 过滤条件与单个开关 [_toggleFor] 保持一致（管理员、模块无错误、站源可用）。
+  Future<void> _toggleAll(bool value) async {
+    if (!_store.profile.admin) return;
+    final repository = _repository;
+    final targets = (_modules ?? const <SourceModule>[])
+        .where(
+          (m) =>
+              m.error.isEmpty &&
+              SourceSite.isAvailable(m.id) &&
+              _store.sourceEnabled(m.id) != value,
+        )
+        .toList();
+    if (targets.isEmpty) {
+      _show(value ? '所有模块都已启动' : '所有模块都已关闭');
+      return;
+    }
+    await saveSetting(context, () async {
+      await _store.setSourcesEnabled(targets.map((m) => m.id), value);
+      // 全关闭时，和单个开关一样暂停这些站源的下载。
+      if (!value && repository.supportsDownloads) {
+        for (final module in targets) {
+          await repository.controlDownloads('pauseSource', id: module.id);
+        }
+      }
+    });
+    if (mounted)
+      _show(
+        value ? '已启动全部模块（${targets.length}）' : '已关闭全部模块（${targets.length}）',
+      );
+  }
+
   Future<void> _details(SourceModule module) => showDialog<void>(
     context: context,
     builder: (_) => _ModuleDialog(module: module, install: false),
@@ -643,6 +675,8 @@ class _ModulesPageState extends State<ModulesPage>
       total: modules.length,
       started: started,
       stopped: modules.length - started,
+      admin: _store.profile.admin,
+      onToggleAll: _toggleAll,
     );
   }
 
@@ -1673,16 +1707,20 @@ class _Note extends StatelessWidget {
   );
 }
 
-/// 已安装模块的实时统计面板：总数 / 已启动 / 未启动。
+/// 已安装模块的实时统计面板：总数 / 已启动 / 未启动，附带全启动 / 全关闭。
 class _StatsPanel extends StatelessWidget {
   const _StatsPanel({
     required this.total,
     required this.started,
     required this.stopped,
+    required this.admin,
+    required this.onToggleAll,
   });
   final int total;
   final int started;
   final int stopped;
+  final bool admin;
+  final Future<void> Function(bool value) onToggleAll;
 
   @override
   Widget build(BuildContext context) {
@@ -1707,6 +1745,25 @@ class _StatsPanel extends StatelessWidget {
         Text(label, style: caption),
       ],
     );
+    Widget action({
+      required IconData icon,
+      required String tip,
+      required bool enabled,
+      required VoidCallback onTap,
+    }) => Tooltip(
+      message: tip,
+      child: SizedBox(
+        width: 34,
+        child: IconButton(
+          icon: Icon(icon, size: 18),
+          color: colors.tertiary,
+          disabledColor: colors.onSurfaceVariant.withValues(alpha: 0.35),
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+          onPressed: enabled ? onTap : null,
+        ),
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Container(
@@ -1723,6 +1780,19 @@ class _StatsPanel extends StatelessWidget {
             cell(started, '已启动', colors.tertiary),
             _divider(colors),
             cell(stopped, '未启动', colors.onSurfaceVariant),
+            _divider(colors),
+            action(
+              icon: Icons.power_settings_new_rounded,
+              tip: '启动全部模块',
+              enabled: admin && stopped > 0,
+              onTap: () => onToggleAll(true),
+            ),
+            action(
+              icon: Icons.power_off_rounded,
+              tip: '关闭全部模块',
+              enabled: admin && started > 0,
+              onTap: () => onToggleAll(false),
+            ),
           ],
         ),
       ),
@@ -1730,7 +1800,7 @@ class _StatsPanel extends StatelessWidget {
   }
 
   Widget _divider(ColorScheme colors) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 10),
+    padding: const EdgeInsets.symmetric(horizontal: 8),
     child: SizedBox(
       height: 22,
       child: VerticalDivider(
