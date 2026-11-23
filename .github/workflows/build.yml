@@ -26,11 +26,6 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - &checkout-hongguo
-        uses: actions/checkout@v4
-        with:
-          repository: guoapp-modules/hongguo
-          path: bundled-modules/hongguo
       - &setup-python
         uses: actions/setup-python@v5
         with:
@@ -97,7 +92,6 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - *checkout-hongguo
       - *setup-python
       - *setup-go
       - *setup-flutter
