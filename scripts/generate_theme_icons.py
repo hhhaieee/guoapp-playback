@@ -76,6 +76,10 @@ for name, seed in themes.items():
     rounded = rounded_icon(background)
     icon_set = output / f'ios/Runner/Assets.xcassets/AppIcon-{name.title()}.appiconset'
     icon_set.mkdir(parents=True, exist_ok=True)
+    # 清掉旧版遗留的单张 icon.png：未在 Contents.json 登记会被 actool 当作
+    # "unassigned child"，导致整套备用图标无法编进 Assets.car。
+    for legacy in icon_set.glob('icon.png'):
+        legacy.unlink()
     entries = []
     for idiom, size, scale, px in icon_entries:
         filename = f'icon_{idiom}_{size.replace("x", "x")}_{scale}.png'
