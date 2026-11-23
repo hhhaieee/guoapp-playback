@@ -8,6 +8,14 @@ import CoreMedia
 import MediaPlayer
 import LocalAuthentication
 
+/// 播放器/画中画激活 .playback 会话时广播：会话切换会让 outputVolume 跳变，
+/// 这不是用户按音量键。VolumeKeyWatcher 据此开静默窗口吞掉跳变，避免刚进
+/// 视频图标自己弹出；静默从「会话激活时刻」算，而非进页面时刻。
+private let volumeSessionWillActivate = Notification.Name("duanju/volume/sessionWillActivate")
+private func notifyVolumeSessionWillActivate() {
+  NotificationCenter.default.post(name: volumeSessionWillActivate, object: nil)
+}
+
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var originalBrightness: CGFloat?
@@ -214,6 +222,8 @@ final class MediaControls {
     let commands = MPRemoteCommandCenter.shared()
     if targets.isEmpty {
       let session = AVAudioSession.sharedInstance()
+      // 会话激活会令 outputVolume 跳变（非物理按键）：先广播，让音量监听开静默窗口吞掉。
+      notifyVolumeSessionWillActivate()
       try? session.setCategory(.playback, mode: .moviePlayback)
       try? session.setActive(true)
       bind(commands.playCommand) { [weak self] _ in self?.send("play") }
@@ -449,6 +459,8 @@ final class NativePictureInPicture: NSObject, AVPictureInPictureControllerDelega
 
   private func prepareAudio() {
     let session = AVAudioSession.sharedInstance()
+    // PiP 激活会话同样会让 outputVolume 跳变，通知音量监听吞掉，避免误弹图标。
+    notifyVolumeSessionWillActivate()
     try? session.setCategory(.playback, mode: .moviePlayback)
     try? session.setActive(true)
   }
@@ -746,11 +758,12 @@ final class VolumeKeyWatcher: NSObject {
   private let channel: FlutterMethodChannel
   private var observation: NSKeyValueObservation?
   private var volumeToken: NSObjectProtocol?
+  private var sessionToken: NSObjectProtocol?
   private let setSystemHudSuppressed: (Bool) -> Void
   private var playerActive = false
   private var suppress = false
   private var lastVolume: Float = 0
-  // 进入播放器后的短暂静默期：吸收首页残留的音量变化通知/KVO，避免
+  // 静默期：吸收音频会话激活导致的 outputVolume 跳变（非物理按键），避免
   // "刚进播放器图标就自己跳出来"。静默期内只更新基准值，不弹自绘图标。
   private var quietUntil: Date = .distantPast
 
@@ -759,8 +772,9 @@ final class VolumeKeyWatcher: NSObject {
     self.setSystemHudSuppressed = setSystemHudSuppressed
     super.init()
     lastVolume = AVAudioSession.sharedInstance().outputVolume
-    // 监听 AVSystemController_SystemVolumeDidChangeNotification 私有通知前需要
-    // 先开启远程控制事件接收；播放器内会话活跃，该通知与 KVO 都稳定可靠。
+    // 开启远程控制事件接收：AVSystemController 私有通知作为 KVO 之外的补充触发，
+    // 但该通知在 .playback 会话下不稳定（曾因只依赖它导致视频内图标不弹），
+    // 因此主信号仍是下面的 outputVolume KVO。
     UIApplication.shared.beginReceivingRemoteControlEvents()
     volumeToken = NotificationCenter.default.addObserver(
       forName: NSNotification.Name("AVSystemController_SystemVolumeDidChangeNotification"),
@@ -770,18 +784,32 @@ final class VolumeKeyWatcher: NSObject {
       guard let self, self.playerActive, !self.suppress else { return }
       let value = AVAudioSession.sharedInstance().outputVolume
       self.lastVolume = value
-      // 静默期内只吞掉残留事件，不弹图标（用户视线已切到播放器，没在按音量键）。
+      // 静默期内只吞掉会话激活的跳变，不弹图标。
       guard Date() >= self.quietUntil else { return }
       self.emit(value)
     }
-    // KVO 只同步基准值，绝不弹图标：进入播放器会激活 .playback 音频会话，
-    // setCategory/setActive 本身就会改变 outputVolume 触发 KVO（且常晚于静默期），
-    // 若据此 emit 就会出现「首页按过音量、刚进视频图标自己跳出来」。
-    // 物理音量键弹图标完全交给下面的 AVSystemController 通知——它由真实按键
-    // 触发，不会被会话激活/音量重置误报。
-    observation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.new]) { [weak self] session, _ in
+    // 会话激活（setCategory/setActive）会让 outputVolume 跳变，这不是物理按键。
+    // 播放器/PiP 在激活会话前广播此通知，我们据此开 1.2s 静默窗口吞掉跳变。
+    // 关键：静默从「会话激活时刻」算，而非进页面时刻——跳变就发生在激活瞬间，
+    // 这样既能彻底误弹，又不影响之后用户真实按键弹图标。
+    sessionToken = NotificationCenter.default.addObserver(
+      forName: volumeSessionWillActivate, object: nil, queue: .main
+    ) { [weak self] _ in
       guard let self else { return }
-      self.lastVolume = session.outputVolume
+      self.quietUntil = Date().addingTimeInterval(1.2)
+      self.lastVolume = AVAudioSession.sharedInstance().outputVolume
+    }
+    // KVO 是物理音量键最可靠的信号（AVSystemController 私有通知在 .playback
+    // 会话下并不可靠，不能作为唯一来源）。恢复据此弹图标，配合上面的会话静默
+    // 窗口区分「会话跳变」与「真实按键」：跳变被静默吞掉，按键正常弹出。
+    observation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.new]) { [weak self] session, _ in
+      guard let self, self.playerActive else { return }
+      let value = session.outputVolume
+      if abs(value - self.lastVolume) < 0.001 { return }
+      self.lastVolume = value
+      guard Date() >= self.quietUntil else { return }
+      if self.suppress { return }
+      self.emit(value)
     }
     channel.setMethodCallHandler { [weak self] call, result in
       guard let self else { result(nil); return }
@@ -793,11 +821,11 @@ final class VolumeKeyWatcher: NSObject {
         let useCustomHud = active && hudEnabled
         self.playerActive = useCustomHud
         self.lastVolume = AVAudioSession.sharedInstance().outputVolume
-        // 进入播放器（且启用自绘）后开 0.8s 静默期：切页瞬间可能有首页残留的
-        // 音量变化事件陆续到达，这段时间内只更新基准、不弹图标，避免刚进播放器
-        // 图标就自己跳出来打断观看。退出播放器时不设静默期，恢复即时响应。
+        // 只留极短的 0.3s 切页残留吸收；真正的会话激活跳变由 volumeSessionWillActivate
+        // 通知开的静默窗口覆盖（从激活时刻算，而非进页面时刻）。不设过长静默，
+        // 否则进播放器后马上按音量键会被误吞。退出播放器恢复即时响应。
         self.quietUntil = useCustomHud
-          ? Date().addingTimeInterval(0.8)
+          ? Date().addingTimeInterval(0.3)
           : .distantPast
         self.setSystemHudSuppressed(useCustomHud)
         result(nil)
