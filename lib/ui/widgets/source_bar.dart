@@ -309,10 +309,10 @@ List<double> _saturationMatrix(double saturation) {
   const lr = 0.213, lg = 0.715, lb = 0.072;
   final keep = 1 - saturation;
   return <double>[
-    lr * keep + saturation, lg * keep, lb * keep, 0,
-    lr * keep, lg * keep + saturation, lb * keep, 0,
-    lr * keep, lg * keep, lb * keep + saturation, 0,
-    0, 0, 0, 1,
+    lr * keep + saturation, lg * keep, lb * keep, 0, 0,
+    lr * keep, lg * keep + saturation, lb * keep, 0, 0,
+    lr * keep, lg * keep, lb * keep + saturation, 0, 0,
+    0, 0, 0, 1, 0,
   ];
 }
 
@@ -320,10 +320,10 @@ List<double> _hueRotateMatrix(double angle) {
   final c = cos(angle);
   final s = sin(angle);
   return <double>[
-    0.213 + c * 0.787 - s * 0.213, 0.715 - c * 0.715 - s * 0.715, 0.072 - c * 0.072 + s * 0.072, 0,
-    0.213 - c * 0.213 + s * 0.143, 0.715 + c * 0.285 + s * 0.140, 0.072 - c * 0.072 - s * 0.283, 0,
-    0.213 - c * 0.213 - s * 0.787, 0.715 - c * 0.715 + s * 0.715, 0.072 + c * 0.072 + s * 0.072, 0,
-    0, 0, 0, 1,
+    0.213 + c * 0.787 - s * 0.213, 0.715 - c * 0.715 - s * 0.715, 0.072 - c * 0.072 + s * 0.072, 0, 0,
+    0.213 - c * 0.213 + s * 0.143, 0.715 + c * 0.285 + s * 0.140, 0.072 - c * 0.072 - s * 0.283, 0, 0,
+    0.213 - c * 0.213 - s * 0.787, 0.715 - c * 0.715 + s * 0.715, 0.072 + c * 0.072 + s * 0.072, 0, 0,
+    0, 0, 0, 1, 0,
   ];
 }
 
