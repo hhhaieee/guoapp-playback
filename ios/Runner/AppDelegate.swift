@@ -52,6 +52,13 @@ private func notifyVolumeSessionWillActivate() {
     }
   }
 
+  /// 通过 MPVolumeView 的 slider 设置系统媒体音量（App 手势调音量 / 音量边界重置用）。
+  private func setSystemVolume(_ value: Float) {
+    if volumeView.superview == nil { keyWindow?.addSubview(volumeView) }
+    let slider = volumeView.subviews.first { $0 is UISlider } as? UISlider
+    slider?.value = min(max(value, 0), 1)
+  }
+
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "MediaControls") {
@@ -64,6 +71,7 @@ private func notifyVolumeSessionWillActivate() {
       volumeWatcher = VolumeKeyWatcher(
         messenger: registrar.messenger(),
         setSystemHudSuppressed: { [weak self] in self?.setSystemHudSuppressed($0) },
+        setSystemVolume: { [weak self] value in self?.setSystemVolume(value) },
       )
     }
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "DeviceSettings") {
@@ -104,9 +112,7 @@ private func notifyVolumeSessionWillActivate() {
           return
         case "setVolume":
           if let value = arguments?["volume"] as? Double {
-            if self.volumeView.superview == nil { self.keyWindow?.addSubview(self.volumeView) }
-            let slider = self.volumeView.subviews.first { $0 is UISlider } as? UISlider
-            slider?.value = Float(min(max(value, 0), 1))
+            self.setSystemVolume(Float(value))
           }
           result(nil)
           return
@@ -760,16 +766,27 @@ final class VolumeKeyWatcher: NSObject {
   private var volumeToken: NSObjectProtocol?
   private var sessionToken: NSObjectProtocol?
   private let setSystemHudSuppressed: (Bool) -> Void
+  private let setSystemVolume: (Float) -> Void
   private var playerActive = false
   private var suppress = false
   private var lastVolume: Float = 0
   // 静默期：吸收音频会话激活导致的 outputVolume 跳变（非物理按键），避免
   // "刚进播放器图标就自己跳出来"。静默期内只更新基准值，不弹自绘图标。
   private var quietUntil: Date = .distantPast
+  // 到音量上/下限后系统不再改变 outputVolume，继续按同方向键不会再发通知。
+  // 到边界时安排一次「往内微调一档」，保证下一次同方向按键仍能触发提示。
+  private var boundaryResetWork: DispatchWorkItem?
+  // 微调本身引起的音量变化用独立时间戳吞掉，避免与 App 手势调音量的 suppress 冲突。
+  private var boundarySuppressUntil: Date = .distantPast
 
-  init(messenger: FlutterBinaryMessenger, setSystemHudSuppressed: @escaping (Bool) -> Void) {
+  init(
+    messenger: FlutterBinaryMessenger,
+    setSystemHudSuppressed: @escaping (Bool) -> Void,
+    setSystemVolume: @escaping (Float) -> Void
+  ) {
     channel = FlutterMethodChannel(name: "duanju/volume", binaryMessenger: messenger)
     self.setSystemHudSuppressed = setSystemHudSuppressed
+    self.setSystemVolume = setSystemVolume
     super.init()
     lastVolume = AVAudioSession.sharedInstance().outputVolume
     // 开启远程控制事件接收：AVSystemController 私有通知作为 KVO 之外的补充触发，
@@ -781,12 +798,8 @@ final class VolumeKeyWatcher: NSObject {
       object: nil,
       queue: .main
     ) { [weak self] _ in
-      guard let self, self.playerActive, !self.suppress else { return }
-      let value = AVAudioSession.sharedInstance().outputVolume
-      self.lastVolume = value
-      // 静默期内只吞掉会话激活的跳变，不弹图标。
-      guard Date() >= self.quietUntil else { return }
-      self.emit(value)
+      guard let self, self.playerActive else { return }
+      self.onVolumeChanged(AVAudioSession.sharedInstance().outputVolume)
     }
     // 会话激活（setCategory/setActive）会让 outputVolume 跳变，这不是物理按键。
     // 播放器/PiP 在激活会话前广播此通知，我们据此开 1.2s 静默窗口吞掉跳变。
@@ -804,12 +817,7 @@ final class VolumeKeyWatcher: NSObject {
     // 窗口区分「会话跳变」与「真实按键」：跳变被静默吞掉，按键正常弹出。
     observation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.new]) { [weak self] session, _ in
       guard let self, self.playerActive else { return }
-      let value = session.outputVolume
-      if abs(value - self.lastVolume) < 0.001 { return }
-      self.lastVolume = value
-      guard Date() >= self.quietUntil else { return }
-      if self.suppress { return }
-      self.emit(value)
+      self.onVolumeChanged(session.outputVolume)
     }
     channel.setMethodCallHandler { [weak self] call, result in
       guard let self else { result(nil); return }
@@ -838,6 +846,33 @@ final class VolumeKeyWatcher: NSObject {
         result(FlutterMethodNotImplemented)
       }
     }
+  }
+
+  /// KVO 与私有通知的统一入口：静默期/抑制态只更新基准，不弹图标。
+  private func onVolumeChanged(_ value: Float) {
+    if abs(value - lastVolume) < 0.001 { return }
+    lastVolume = value
+    guard Date() >= quietUntil, Date() >= boundarySuppressUntil, !suppress else { return }
+    emit(value)
+    scheduleBoundaryResetIfNeeded(value)
+  }
+
+  /// 音量到顶/到底后，系统不再改变 outputVolume，继续按同方向键不会再触发
+  /// KVO/通知。这里在到达边界的瞬间安排一次「往内微调一档」，保证下一次同
+  /// 方向按键仍能改变音量、从而弹出提示图标。微调本身用独立抑制窗口吞掉，不弹图标。
+  private func scheduleBoundaryResetIfNeeded(_ value: Float) {
+    guard value >= 0.995 || value <= 0.005 else { return }
+    boundaryResetWork?.cancel()
+    let target: Float = value >= 0.995 ? 0.97 : 0.03
+    let work = DispatchWorkItem { [weak self] in
+      guard let self, self.playerActive else { return }
+      // 先开独立抑制窗口，再微调，避免这次微调被当成用户按键弹图标。
+      self.boundarySuppressUntil = Date().addingTimeInterval(0.4)
+      self.setSystemVolume(target)
+      self.lastVolume = target
+    }
+    boundaryResetWork = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
   }
 
   private func emit(_ value: Float) {
